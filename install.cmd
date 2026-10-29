@@ -1,18 +1,15 @@
 @echo off
-:: ASD CLI Installer for Windows
+:: Viaalink CLI Installer for Windows (installs via.exe and asd.exe)
 :: Delegates to PowerShell installer (bypass AMSI via saved file)
-:: Usage: curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.cmd -o %TEMP%\install.cmd && %TEMP%\install.cmd
+:: Usage: curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.cmd -o %TEMP%\install.cmd && %TEMP%\install.cmd
 
-echo [INFO] ASD CLI Installer (Windows)
+echo [INFO] Viaalink CLI Installer (Windows)
 echo.
 
 :: Download the PowerShell installer to a file (avoids AMSI pipe detection)
 set "PS_INSTALLER=%TEMP%\asd-install-%RANDOM%.ps1"
 
-curl.exe -fsSL -o "%PS_INSTALLER%" "https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.ps1"
-if errorlevel 1 (
-    curl.exe -fsSL -o "%PS_INSTALLER%" "https://asd.host/install.ps1"
-)
+curl.exe -fsSL -o "%PS_INSTALLER%" "https://raw.githubusercontent.com/viaalink/cli/main/install.ps1"
 if errorlevel 1 (
     echo [ERROR] Failed to download installer. Check your internet connection.
     exit /b 1

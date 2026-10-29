@@ -1,8 +1,8 @@
-# ASD CLI on Android (Termux)
+# Viaalink CLI on Android (Termux)
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20
+**Version:** 2.6.0 | **Last Updated:** 2026-10-22
 
-Run ASD CLI on Android devices using [Termux](https://termux.dev/).
+Run the Viaalink CLI on Android devices using [Termux](https://termux.dev/).
 
 Release-over-release changes are tracked in [../CHANGELOG.md](../CHANGELOG.md).
 
@@ -25,13 +25,13 @@ Download and install Termux from F-Droid.
 pkg update && pkg upgrade -y
 ```
 
-### 3. Install ASD
+### 3. Install the CLI
 
 **Option A: Install script** (recommended)
 
 ```bash
 pkg install curl clang
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 ```
 
 The installer auto-detects Termux via `$TERMUX_VERSION`, downloads the Termux-native build, and auto-installs Bun via the bundled `install-bun.sh` script (compiles a small ELF loader from C).
@@ -41,8 +41,8 @@ The installer auto-detects Termux via `$TERMUX_VERSION`, downloads the Termux-na
 ```bash
 # Install Bun first (via ELF loader)
 just android-bun-install
-# Then install ASD
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
+# Then install the CLI
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 ```
 
 **Option C: Via Bun** (for development)
@@ -54,7 +54,7 @@ cd your-project
 bun install
 ```
 
-> **Note:** ASD CLI on Termux runs under real Bun via a userland ELF loader (`bun_loader`). The installer automatically sets this up. See [BUN_TERMUX_LOADER.md](./BUN_TERMUX_LOADER.md) for details.
+> **Note:** The CLI on Termux runs under real Bun via a userland ELF loader (`bun_loader`). The installer automatically sets this up. See [BUN_TERMUX_LOADER.md](./BUN_TERMUX_LOADER.md) for details.
 
 ### 3.1 Install Codex CLI (Termux)
 
@@ -76,13 +76,18 @@ codex
 
 ```bash
 cd your-project
-asd init
-asd net
+via init
+via net
 ```
+
+`via` and `asd` are the same command; older scripts that call `asd` keep working.
+
+To publish services on public URLs, enrol a relay first (there is no default
+relay): `via relay add '<enrolment link>'` — the link comes from your relay's dashboard.
 
 ## How the Termux Build Works
 
-The standard `asd` binary is compiled with Bun (`bun build --compile`) which produces glibc-linked, non-PIE Linux ELF binaries incompatible with Android's Bionic linker. The Termux build instead:
+The standard CLI binary is compiled with Bun (`bun build --compile`) which produces glibc-linked, non-PIE Linux ELF binaries incompatible with Android's Bionic linker. The Termux build instead:
 
 1. Bundles all CLI code into a single JS file (`asd-bundle.js`) via `bun build --target=bun`
 2. Runs it under **real Bun** via a userland ELF loader (`bun_loader`)
@@ -112,10 +117,10 @@ Binaries are stored in Termux's home directory:
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| `asd net` TUI | Works | Full ANSI color support |
-| `asd init` | Works | All ARM64 binaries install |
-| `asd net open` | Limited | No browser integration |
-| `asd tunnel` | Works | Requires authentication |
+| `via net` TUI | Works | Full ANSI color support |
+| `via init` | Works | All ARM64 binaries install |
+| `via net open` | Limited | No browser integration |
+| `via expose` | Works | Requires an enrolled relay (`via relay add`) |
 | SSH keys | Works | Stored in `~/.ssh/` |
 
 ### Terminal Colors

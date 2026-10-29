@@ -1,24 +1,26 @@
-# ASD CLI Command Reference
+# Viaalink CLI Command Reference
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20
+**Version:** 2.7.0 | **Last Updated:** 2026-10-22
 
-Complete reference for all ASD CLI commands.
+Complete reference for all Viaalink CLI commands.
+
+`via` and `asd` are the same command; older scripts that call `asd` keep working.
 
 ---
 
 ## Quick Reference
 
-**Complete list of every `asd <cmd>`** — all 209 commands across 41
+**Complete list of every `via <cmd>`** — all 209 commands across 41
 groups — lives in **[`docs/generated/COMMANDS.md`](./generated/COMMANDS.md)**,
 generated from `registerCommand(...)` call sites and kept in sync by
 a CI drift test. For per-command help and flags, run
-`asd <command> --help`. For the live grouped list,
-`asd core list-commands` (or just `asd help`).
+`via <command> --help`. For the live grouped list,
+`via core list-commands` (or just `via help`).
 
 This document covers the **day-to-day workflow commands** below with
 additional context — how to use them together, common patterns, and
 flags that aren't obvious from `--help` alone. Knowledge commands
-(`asd macro`, `asd schema`, `asd rules`, `asd flow`) are documented
+(`via macro`, `via schema`, `via rules`, `via flow`) are documented
 in their own files:
 
 - [docs/TEMPLATE_MACROS.md](./TEMPLATE_MACROS.md) — every macro
@@ -30,14 +32,14 @@ in their own files:
 
 ## Core Commands
 
-### `asd init`
+### `via init`
 
 Initialize a project workspace with configuration and binaries.
 
 ```bash
-asd init              # Interactive setup
-asd init --yes        # Accept all defaults
-asd init --skip-binaries  # Skip binary downloads
+via init              # Interactive setup
+via init --yes        # Accept all defaults
+via init --skip-binaries  # Skip binary downloads
 ```
 
 **What it does:**
@@ -47,22 +49,22 @@ asd init --skip-binaries  # Skip binary downloads
 4. Sets up `.env` from template
 5. Optionally discovers running services
 
-### `asd env-init`
+### `via env-init`
 
 Manage environment variables in `.env` file.
 
 ```bash
-asd env-init              # Merge with existing .env
-asd env-init --override   # Replace entire .env
+via env-init              # Merge with existing .env
+via env-init --override   # Replace entire .env
 ```
 
-### `asd config validate`
+### `via config validate`
 
 Validate `asd.yaml` configuration against the schema.
 
 ```bash
-asd config validate          # Human-readable output
-asd config validate --json   # JSON output (for CI/scripts)
+via config validate          # Human-readable output
+via config validate --json   # JSON output (for CI/scripts)
 ```
 
 **What it checks:**
@@ -70,15 +72,15 @@ asd config validate --json   # JSON output (for CI/scripts)
 - Service configuration (valid dial addresses, paths)
 - Feature flags and plugin references
 
-### `asd run <task>`
+### `via run <task>`
 
 Run an automation task defined in `asd.yaml`. This is the simplest way to start your development environment.
 
 ```bash
-asd run dev               # Run the 'dev' task
-asd run prod              # Run the 'prod' task
-asd run start             # Run the 'start' task
-asd run                   # Show available tasks
+via run dev               # Run the 'dev' task
+via run prod              # Run the 'prod' task
+via run start             # Run the 'start' task
+via run                   # Show available tasks
 ```
 
 **What it does:**
@@ -101,62 +103,46 @@ automation:
 - `--follow` or `-f`: Follow logs after starting
 - `--json`: Output JSON format
 
-**See also:** `asd up` for more advanced options like `--env` flag.
+**See also:** `via up` for more advanced options like `--env` flag.
 
-### `asd login`
+### `via login`
 
-Login to ASD platform via OAuth. Opens a browser for authentication.
+Sign this device in to your viaalink.com account with a device code: the CLI
+prints a code and a link, you approve it in the browser, and the session is
+stored for this user.
 
 ```bash
-asd login              # Interactive OAuth login
+via login                # Opens the link in a browser
+via login --no-browser   # Only prints the link and the code
 ```
 
-After login, tunnel credentials are automatically saved and all `asd expose` / `asd net apply --tunnel` commands work.
+Signing in does not give this device relay credentials; those come from
+`via relay add '<enrolment link>'`.
 
-### `asd login key`
+### `via logout`
 
-Login with an API key for headless/CI environments where no browser is available.
+Sign this device out of viaalink.com and revoke its session.
 
 ```bash
-asd login key <api-key>          # Pass key directly
-asd login key                    # Interactive prompt (TTY only)
+via logout
 ```
 
-The API key can also be provided via `ASD_API_KEY` environment variable.
+### `via whoami`
 
-### `asd logout`
-
-Sign out and clear local credentials.
+Show the signed-in viaalink.com account and its licenses.
 
 ```bash
-asd logout
+via whoami
 ```
 
-### `asd init --key`
+### `via update`
 
-Import an existing SSH key file into the credential registry.
-
-```bash
-asd init --key /path/to/private_key                    # Auto-detect key_id from server
-asd init --key /path/to/private_key --key-id <uuid>    # Explicit key_id (works offline)
-asd init --key /path/to/private_key --server eu1       # Specify server
-```
-
-**What it does:**
-1. Validates the SSH key file
-2. Computes the key fingerprint
-3. If `--key-id` is not provided, queries the server to find the matching key
-4. Copies the key to `~/.config/asd/tunnel/keys/`
-5. Adds the key to the credential registry
-
-### `asd update`
-
-Update ASD CLI to the latest version.
+Update the CLI to the latest version.
 
 ```bash
-asd update           # Update to latest
-asd update --check   # Check for updates only
-asd update --force   # Force reinstall
+via update           # Update to latest
+via update --check   # Check for updates only
+via update --force   # Force reinstall
 ```
 
 ---
@@ -165,15 +151,15 @@ asd update --force   # Force reinstall
 
 Quick port exposure with tunnels.
 
-### `asd expose <port>`
+### `via expose <port>`
 
 Expose a local port instantly.
 
 ```bash
-asd expose 3000                    # Basic exposure
-asd expose 3000 --name myapp       # Named tunnel (prefix in URL)
-asd expose 3000 --local-only       # No tunnel, local Caddy only
-asd expose 3000 myapp --direct     # Direct tunnel, skip Caddy
+via expose 3000                    # Basic exposure
+via expose 3000 --name myapp       # Named tunnel (prefix in URL)
+via expose 3000 --local-only       # No tunnel, local Caddy only
+via expose 3000 --server home      # Publish through a named relay
 ```
 
 **Options:**
@@ -182,25 +168,26 @@ asd expose 3000 myapp --direct     # Direct tunnel, skip Caddy
 |--------|-------------|
 | `--name <name>` | Name prefix for tunnel URL |
 | `--local-only` | No tunnel, local Caddy routing only |
-| `--direct` | Direct tunnel, skip Caddy proxy |
+| `--server <relay>` | Publish through this relay instead of the default one |
+| `--domain <host>` | Publish under another domain the relay serves |
 
 **Output:**
 ```
 Local:  http://localhost:3000
 Caddy:  http://myapp.localhost
-Tunnel: https://myapp-abc123.cicd.eu1.asd.engineer
+Tunnel: https://myapp-abc123.relay.example.com
 ```
 
-The `--name` option sets a prefix. The full URL is always `<name>-<client-id>.cicd.eu1.asd.engineer`.
+The `--name` option sets a prefix. On a relay shared by several devices the URL is `<name>-<client-id>.<relay-domain>`; on your own (dedicated) relay nothing is appended (`<name>.<relay-domain>`).
 
-**Interactive prompts:** When running in a terminal, prompts for binary installation or login if needed.
+**Interactive prompts:** When running in a terminal, prompts for binary installation if needed. Without an enrolled relay it tells you to run `via relay add`.
 
-### `asd expose list`
+### `via expose list`
 
 List all exposed services with tunnel URLs.
 
 ```bash
-asd expose list
+via expose list
 ```
 
 **Output:**
@@ -208,18 +195,18 @@ asd expose list
 myapp
     Port:     3000
     Local:    http://myapp.localhost
-    Tunnel:   https://myapp-abc123.cicd.eu1.asd.engineer
+    Tunnel:   https://myapp-abc123.relay.example.com
     Status:   ✅ Online
     Uptime:   🕐 2h 15m
 ```
 
-### `asd expose stop`
+### `via expose stop`
 
 Stop an exposed service.
 
 ```bash
-asd expose stop myapp    # Stop by name
-asd expose stop 3000     # Stop by port
+via expose stop myapp    # Stop by name
+via expose stop 3000     # Stop by port
 ```
 
 ---
@@ -228,12 +215,12 @@ asd expose stop 3000     # Stop by port
 
 Network management and TUI.
 
-### `asd net`
+### `via net`
 
 Open the interactive network TUI.
 
 ```bash
-asd net
+via net
 ```
 
 **TUI Controls:**
@@ -245,84 +232,84 @@ asd net
 | `Ctrl+Q` | Quit |
 | `↑/↓` | Navigate services |
 
-### `asd net apply`
+### `via net apply`
 
 Apply network configuration.
 
 ```bash
-asd net apply              # Apply all (Caddy routes)
-asd net apply --caddy      # Start Caddy reverse proxy
-asd net apply --tunnel     # Start tunnels for services
-asd net apply --ids svc1,svc2  # Apply specific services only
+via net apply              # Apply all (Caddy routes)
+via net apply --caddy      # Start Caddy reverse proxy
+via net apply --tunnel     # Start tunnels for services
+via net apply --ids svc1,svc2  # Apply specific services only
 ```
 
-### `asd net refresh`
+### `via net refresh`
 
 Refresh service detection and health checks.
 
 ```bash
-asd net refresh
+via net refresh
 ```
 
-### `asd net discover`
+### `via net discover`
 
 Discover running services.
 
 ```bash
-asd net discover
+via net discover
 ```
 
-### `asd net expose`
+### `via net expose`
 
 Manage tunnels for services.
 
 ```bash
-asd net expose start <service-id>    # Start tunnel
-asd net expose start --all           # Start all public services
-asd net expose stop <service-id>     # Stop tunnel
-asd net expose stop --all            # Stop all tunnels
-asd net expose reset                 # Kill all, clear state
+via net expose start <service-id>    # Start tunnel
+via net expose start --all           # Start all public services
+via net expose stop <service-id>     # Stop tunnel
+via net expose stop --all            # Stop all tunnels
+via net expose reset                 # Kill all, clear state
 ```
 
-### `asd net start/stop`
+### `via net start/stop`
 
 Start or stop a service.
 
 ```bash
-asd net start <service-id>
-asd net stop <service-id>
+via net start <service-id>
+via net stop <service-id>
 ```
 
-### `asd net open`
+### `via net open`
 
 Open service URL in browser.
 
 ```bash
-asd net open <service-id>
+via net open <service-id>
 ```
 
-### `asd net remove`
+### `via net remove`
 
 Remove service from registry.
 
 ```bash
-asd net remove <service-id>
+via net remove <service-id>
 ```
 
-### `asd net clean`
+### `via net clean`
 
 Remove stale registry entries.
 
 ```bash
-asd net clean
+via net clean
 ```
 
-### `asd net reset`
+### `via net reset`
 
 Full registry reset.
 
 ```bash
-asd net reset
+via net reset
 ```
 
 ---
@@ -331,48 +318,48 @@ asd net reset
 
 Built-in service management.
 
-### `asd terminal`
+### `via terminal`
 
 Web terminal (ttyd) management.
 
 ```bash
-asd terminal          # Interactive menu
-asd terminal start    # Start ttyd
-asd terminal stop     # Stop ttyd
+via terminal          # Interactive menu
+via terminal start    # Start ttyd
+via terminal stop     # Stop ttyd
 ```
 
 **Required environment:**
 - `ASD_TTYD_USERNAME` - Login username
 - `ASD_TTYD_PASSWORD` - Login password
 
-### `asd code`
+### `via code`
 
 VS Code server (code-server) management.
 
 ```bash
-asd code          # Interactive menu
-asd code start    # Start code-server
-asd code stop     # Stop code-server
+via code          # Interactive menu
+via code start    # Start code-server
+via code stop     # Stop code-server
 ```
 
-### `asd database`
+### `via database`
 
 Database UI (DbGate) management.
 
 ```bash
-asd database          # Interactive menu
-asd database start    # Start DbGate
-asd database stop     # Stop DbGate
+via database          # Interactive menu
+via database start    # Start DbGate
+via database stop     # Stop DbGate
 ```
 
-### `asd inspect`
+### `via inspect`
 
 Network inspector (mitmproxy) - Alpha.
 
 ```bash
-asd inspect          # Interactive menu
-asd inspect start    # Start mitmproxy
-asd inspect stop     # Stop mitmproxy
+via inspect          # Interactive menu
+via inspect start    # Start mitmproxy
+via inspect stop     # Stop mitmproxy
 ```
 
 ---
@@ -381,132 +368,110 @@ asd inspect stop     # Stop mitmproxy
 
 Local reverse proxy management.
 
-### `asd caddy start`
+### `via caddy start`
 
 Start Caddy reverse proxy.
 
 ```bash
-asd caddy start
+via caddy start
 ```
 
-### `asd caddy stop`
+### `via caddy stop`
 
 Stop Caddy reverse proxy.
 
 ```bash
-asd caddy stop
+via caddy stop
 ```
 
-### `asd caddy restart`
+### `via caddy restart`
 
 Restart Caddy.
 
 ```bash
-asd caddy restart
+via caddy restart
 ```
 
-### `asd caddy config`
+### `via caddy config`
 
 Show current Caddy configuration.
 
 ```bash
-asd caddy config
+via caddy config
 ```
 
 ---
 
-## Tunnel Authentication
+## Relays and Tunnel Authentication
 
-Get tunnel credentials for `asd expose` and other tunnel commands.
+There is no default relay. Before `via expose` or any other tunnel command can
+publish a service, enrol this device on a relay. Signing in with `via login`
+is separate and does not give the device relay credentials.
 
-### Method 1: Ephemeral Token (Quick Testing)
+### `via relay add`
 
-No account needed. Get 5-minute credentials:
-
-```bash
-curl -X POST https://asd.engineer/functions/v1/create-ephemeral-token
-```
-
-Set the returned values:
-```bash
-export ASD_TUNNEL_TOKEN=<tunnel_client_secret>
-export ASD_TUNNEL_USER=<tunnel_client_id>
-asd expose 3000
-```
-
-### Method 2: Tunnel Token (CI/CD)
-
-1. Create account at [asd.host](https://asd.host)
-2. Go to Account → Tunnel Tokens → Create
-3. Set in `.env` or environment:
+Enrol this device on a relay with the link from the relay's dashboard (quote it),
+or register a private, self-hosted relay by host and key.
 
 ```bash
-ASD_TUNNEL_TOKEN=your-token
-ASD_TUNNEL_USER=your-user-id
+via relay add '<enrolment link>'           # Enrol from the relay's link
+via relay add '<enrolment link>' --name home
+via relay add <name> --host <host> --key <path> [--port <port>] [--domain <domain>]
 ```
 
-### `asd token create`
-
-Create a tunnel token (credential) for authentication.
+### `via relay list` / `via relay info`
 
 ```bash
-asd token create
+via relay list            # All relays this device knows, the default marked
+via relay info <name>     # Details, capabilities and local credentials
 ```
 
-### `asd token verify`
+### `via relay set`
 
-Verify that current tunnel credentials are valid.
+Set the default relay used when a command does not name one.
 
 ```bash
-asd token verify
+via relay set <name>
 ```
 
-### `asd auth status`
-
-Show current authentication status.
+Per command, `--server <relay-name>` picks another relay and `--domain <host>`
+one of its other domains:
 
 ```bash
-asd auth status
+via expose 3000 --server <relay-name>
+via expose 3000 --domain apps.example.com
 ```
 
-### `asd auth whoami`
+### `via relay rotate-key`
 
-Show current user info (email, client ID, org ID, token expiry).
+Replace this device's key on its relay (default: the default relay).
 
 ```bash
-asd auth whoami
+via relay rotate-key [name]
 ```
 
-### `asd auth credentials`
+### `via relay remove`
 
-Show all credential sources and their status.
+Sign this device out of the relay, then remove it locally.
 
 ```bash
-asd auth credentials
+via relay remove <name>
 ```
 
-### `asd auth refresh`
-
-Refresh the authentication token.
-
-```bash
-asd auth refresh
-```
-
-### `asd auth export`
+### `via auth export`
 
 Export SSH key credentials as environment variables for use in Docker or CI.
 
 ```bash
-asd auth export              # Shell export format
-asd auth export --docker     # Docker -e flag format
+via auth export              # Shell export format
+via auth export --docker     # Docker -e flag format
 ```
 
 **Shell format output:**
 ```bash
 export ASD_TUNNEL_KEY="<base64-private-key>"
 export ASD_TUNNEL_KEY_ID="<key-uuid>"
-export ASD_TUNNEL_HOST="tunnel.asd.sh"
+export ASD_TUNNEL_HOST="relay.example.com"
 export ASD_TUNNEL_PORT="2222"
 ```
 
@@ -514,20 +479,145 @@ export ASD_TUNNEL_PORT="2222"
 ```bash
 -e ASD_TUNNEL_KEY="<base64-private-key>" \
 -e ASD_TUNNEL_KEY_ID="<key-uuid>" \
--e ASD_TUNNEL_HOST="tunnel.asd.sh" \
+-e ASD_TUNNEL_HOST="relay.example.com" \
 -e ASD_TUNNEL_PORT="2222"
 ```
 
 **Usage examples:**
 ```bash
 # Set env vars in current shell
-eval $(asd auth export)
+eval $(via auth export)
 
 # Pass to Docker
-docker run $(asd auth export --docker) my-image asd expose 3000
+docker run $(via auth export --docker) my-image via expose 3000
 ```
 
-> **Tip:** Use `asd login` to authenticate, `asd auth credentials` to view all credentials.
+> **Tip:** Relay credentials come from `via relay add '<enrolment link>'`; `via relay list` shows them.
+
+---
+
+## Secrets (`via vault`)
+
+`via vault` keeps secrets encrypted on this machine before they go anywhere.
+Two stores ("providers"):
+
+- `local` (default): one file, `<ASD home>/vault-store/local.json` (mode 0600;
+  `~/.local/share/asd/vault-store/` on Linux).
+- `s3`: your own S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2,
+  MinIO, ...). Only ciphertext reaches the bucket. Secret **names** are
+  visible to whoever runs the bucket; values, descriptions and categories
+  are not.
+
+Secrets live in **scopes** (default: `default`). A secret is referenced as
+`via://<scope>/<name>`, e.g. `via://default/db/password`.
+
+The key that opens your secrets is the **identity**, in your per-user config
+directory (`~/.config/asd/vault/identity` on Linux, `~/Library/Application
+Support/asd/vault/identity` on macOS, `%APPDATA%\asd\vault\identity` on
+Windows; mode 0600, created on the first `vault set`). It is kept apart from
+the store on purpose and never leaves this machine. To use the same secrets
+on another machine, copy that file there over a secure channel (same path,
+mode 0600). Lose it and the secrets cannot be decrypted, so back it up, but
+separately from the store and somewhere only you can read: anyone with both
+can read every secret.
+
+### Choosing the store
+
+```bash
+via config set vault.provider s3
+via config set vault.s3.bucket my-secrets
+via config set vault.s3.prefix via/          # optional, the default
+via config set vault.scope default           # optional: scope for names without one
+```
+
+Then, per provider:
+
+| Provider | `vault.s3.endpoint` | `vault.s3.region` |
+|---|---|---|
+| AWS S3 | leave unset | the bucket's region (e.g. `eu-central-1`); or `AWS_REGION` / `AWS_DEFAULT_REGION`, or `region` in your AWS profile. Required: there is no "auto" on AWS |
+| Cloudflare R2 | `https://<account-id>.r2.cloudflarestorage.com` | leave unset (`auto`; `AWS_REGION` is ignored when an endpoint is set) |
+| Backblaze B2 | `https://s3.<region>.backblazeb2.com` (e.g. `s3.eu-central-003.backblazeb2.com`) | the same region, e.g. `eu-central-003` |
+| MinIO / Garage | `https://minio.example.com` (`http://` only for `localhost` / `127.0.0.1`) | your server's region, often `us-east-1` |
+
+Credentials are never read from a config file: set `S3_ACCESS_KEY_ID` and
+`S3_SECRET_ACCESS_KEY` (or `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`), or
+name a profile from `~/.aws/credentials` with `via config set vault.s3.profile <name>`.
+The bucket must honour conditional writes (`If-Match` / `If-None-Match`); AWS
+S3, R2 and current MinIO do. Before a scope is created, the vault checks this
+with a short-lived probe object and refuses a bucket that ignores them.
+`vault.s3.prefix` must be relative, without `..` segments or backslashes.
+
+A project's `asd.yaml` may set only the scope and the key prefix; where
+secrets go (provider, bucket, endpoint, region, profile) comes from your
+global config alone, so a cloned repository cannot point your vault at
+someone else's bucket:
+
+```yaml
+vault:
+  scope: myapp
+  s3:
+    prefix: myapp/
+```
+
+`via config set` refuses a key the vault config does not have (such as an
+access key under `vault.s3`) before writing anything.
+
+### `via vault set` / `get` / `list` / `delete`
+
+```bash
+via vault set db/password                    # prompts for the value (hidden)
+printf '%s' "$VALUE" | via vault set db/password --stdin
+via vault set tls/key --file ./server.key    # binary files are kept as-is
+via vault set api/token --scope work --category api --description "CI token"
+via vault get db/password                    # prints the value
+via vault get via://work/api/token
+via vault list [--scope work]                # names and descriptions, never values
+via vault delete db/password
+```
+
+A value is never accepted on the command line (`via vault set name value`
+fails): it would end up in your shell history.
+
+### `via vault inject`
+
+Replace `${via://scope/name}` references in a template. The output file is
+created readable by you only; a reference that does not resolve is an error.
+
+```bash
+via vault inject config.tpl config.yaml      # or omit the output for stdout
+```
+
+### `via vault run`
+
+Run a command with secrets in its environment. The env template holds
+`KEY=via://scope/name` or `KEY=...${via://scope/name}...` lines. Any secret
+value the command prints is replaced by `***` (byte for byte, so binary
+output passes through unchanged).
+
+Limits of the masking: values shorter than 4 characters are not masked
+(`vault set` warns below 6), and encoded forms of a secret (base64, URL- or
+hex-encoded, split across words) are not recognised. Masking guards against
+accidents, not against a command that wants to leak a secret.
+
+With the `s3` provider, the command does not inherit the environment
+variables the vault itself took its bucket credentials from (for example
+`S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY`); every other variable, other
+`AWS_*` ones included, passes through, so `vault run -- aws ...` or
+`terraform` keep working. With the `local` provider nothing is removed.
+This keeps the vault's key out of the command by accident; it is not a
+security boundary against the command. Ctrl+C and SIGTERM are passed on to the command, and its exit
+code is the exit code of `vault run`.
+
+```bash
+via vault run --env-file .env.vault -- bun dev
+```
+
+### `via vault import` / `export`
+
+```bash
+via vault import ./secrets --yes             # .env files become one secret per variable
+via vault export ./restored                  # rebuilds the files (mode 0600)
+```
 
 ---
 
@@ -535,68 +625,73 @@ docker run $(asd auth export --docker) my-image asd expose 3000
 
 Remote development via GitHub Actions.
 
-### `asd gh`
+### `via gh`
 
 Show GitHub integration menu.
 
 ```bash
-asd gh
+via gh
 ```
 
-### `asd gh setup`
+### `via gh setup`
 
-Install GitHub workflow files.
+Install the terminal workflow (`.github/workflows/terminal.yml`). It
+publishes with a relay device key held in the repository secrets
+`ASD_TUNNEL_KEY`, `ASD_TUNNEL_KEY_ID`, `ASD_TUNNEL_HOST` and, optionally,
+`ASD_TUNNEL_PORT`: the values `via auth export` prints on a device enrolled on
+the relay.
 
 ```bash
-asd gh setup
+via gh setup
 ```
 
-### `asd gh terminal`
+### `via gh terminal`
 
-Start remote terminal session in GitHub Actions.
+Start remote terminal session in GitHub Actions. Stops before triggering when
+the repository lacks the relay secrets above.
 
 ```bash
-asd gh terminal
+via gh terminal
 ```
 
-### `asd gh list`
+### `via gh list`
 
 List recent workflow runs.
 
 ```bash
-asd gh list
+via gh list
 ```
 
-### `asd gh runs`
+### `via gh runs`
 
 Show active workflow runs.
 
 ```bash
-asd gh runs
+via gh runs
 ```
 
-### `asd gh active`
+### `via gh active`
 
 Check for active sessions.
 
 ```bash
-asd gh active
+via gh active
 ```
 
-### `asd gh stop`
+### `via gh stop`
 
 Stop running session.
 
 ```bash
-asd gh stop
+via gh stop
 ```
 
-### `asd gh login`
+### `via gh login`
 
 Configure GitHub authentication.
 
 ```bash
-asd gh login
+via gh login
 ```
 
 ---
@@ -605,46 +700,46 @@ asd gh login
 
 AI assistant skill management.
 
-### `asd skill install`
+### `via skill install`
 
 Install skills for Claude Code and OpenAI Codex.
 
 ```bash
-asd skill install            # Install for current project
-asd skill install --global   # Install globally
-asd skill install --yes      # Non-interactive
+via skill install            # Install for current project
+via skill install --global   # Install globally
+via skill install --yes      # Non-interactive
 ```
 
-### `asd skill list`
+### `via skill list`
 
-List available ASD skills.
+List available skills.
 
 ```bash
-asd skill list
+via skill list
 ```
 
-### `asd skill status`
+### `via skill status`
 
 Check installation status of skills.
 
 ```bash
-asd skill status
+via skill status
 ```
 
 ---
 
 ## Dependency Management
 
-Manage ASD's binary dependencies (Caddy, ttyd, code-server, gh, etc.).
+Manage the CLI's binary dependencies (Caddy, ttyd, code-server, gh, etc.).
 
-### `asd deps install`
+### `via deps install`
 
 Install all managed binaries, or a specific one.
 
 ```bash
-asd deps install                  # Install all
-asd deps install caddy            # Install specific binary
-asd deps install --force          # Force reinstall even if present
+via deps install                  # Install all
+via deps install caddy            # Install specific binary
+via deps install --force          # Force reinstall even if present
 ```
 
 **What it does:**
@@ -652,13 +747,13 @@ asd deps install --force          # Force reinstall even if present
 2. Verifies integrity via SHA-256/SHA-512 checksums
 3. Installs to global location (`~/.local/share/asd/bin/`)
 
-### `asd deps update`
+### `via deps update`
 
 Update all binaries to their latest upstream versions, or a specific one.
 
 ```bash
-asd deps update                   # Update all outdated binaries
-asd deps update caddy             # Update specific binary
+via deps update                   # Update all outdated binaries
+via deps update caddy             # Update specific binary
 ```
 
 **What it does:**
@@ -674,14 +769,14 @@ asd deps update caddy             # Update specific binary
 
 View service logs.
 
-### `asd logs <service>`
+### `via logs <service>`
 
 View logs for a service.
 
 ```bash
-asd logs caddy      # Caddy proxy logs
-asd logs tunnel     # Tunnel logs
-asd logs ttyd       # Terminal logs
+via logs caddy      # Caddy proxy logs
+via logs tunnel     # Tunnel logs
+via logs ttyd       # Terminal logs
 ```
 
 Logs are stored in `.asd/workspace/logs/`.
@@ -690,59 +785,59 @@ Logs are stored in `.asd/workspace/logs/`.
 
 ## Autocomplete
 
-Shell tab-completion for all ASD commands.
+Shell tab-completion for all CLI commands.
 
-### `asd ac install`
+### `via ac install`
 
 Install shell completions. Auto-detects your shell, or specify one.
 
 ```bash
-asd ac install          # Auto-detect (bash/zsh/fish)
-asd ac install bash     # Install for bash
-asd ac install zsh      # Install for zsh
-asd ac install fish     # Install for fish
+via ac install          # Auto-detect (bash/zsh/fish)
+via ac install bash     # Install for bash
+via ac install zsh      # Install for zsh
+via ac install fish     # Install for fish
 ```
 
 After installing, open a new terminal (or `source ~/.bashrc`) and use Tab to complete:
 
 ```
-asd ca<TAB>        → caddy
-asd caddy <TAB>    → start  stop  restart  config
+via ca<TAB>        → caddy
+via caddy <TAB>    → start  stop  restart  config
 ```
 
-### `asd ac remove`
+### `via ac remove`
 
 Remove shell completions.
 
 ```bash
-asd ac remove           # Remove for detected shell
-asd ac remove bash      # Remove for bash
+via ac remove           # Remove for detected shell
+via ac remove bash      # Remove for bash
 ```
 
-### `asd ac status`
+### `via ac status`
 
 Show autocomplete installation status across all shells.
 
 ```bash
-asd ac status
+via ac status
 ```
 
-### `asd ac refresh`
+### `via ac refresh`
 
 Refresh the completions cache (run after installing new commands or plugins).
 
 ```bash
-asd ac refresh
+via ac refresh
 ```
 
 ---
 
 ## Command Suggestions
 
-If you mistype a command, ASD will suggest similar commands:
+If you mistype a command, the CLI will suggest similar commands:
 
 ```
-$ asd deos
+$ via deos
 Unknown command: deos
 
   Did you mean?
@@ -750,14 +845,14 @@ Unknown command: deos
     deps install    Install managed binaries (--binary <name>, --force)
     deps update     Update a binary to latest upstream version
 
-  Run 'asd --help' to see available commands.
+  Run 'via --help' to see available commands.
 ```
 
-If you mistype a subcommand within a valid group, ASD shows available subcommands:
+If you mistype a subcommand within a valid group, the CLI shows available subcommands:
 
 ```
-$ asd caddy strat
-  Usage: asd caddy <command>
+$ via caddy strat
+  Usage: via caddy <command>
 
   Available commands:
 
@@ -782,7 +877,7 @@ Available for all commands:
 
 ## Environment Variables
 
-Key environment variables for ASD:
+Key environment variables:
 
 | Variable | Description |
 |----------|-------------|
@@ -794,13 +889,10 @@ Key environment variables for ASD:
 
 | Variable | Description |
 |----------|-------------|
-| `ASD_API_KEY` | API key for headless login (`asd login key`) |
-| `ASD_TUNNEL_TOKEN` | Tunnel token (from dashboard) |
-| `ASD_TUNNEL_USER` | Tunnel username |
 | `ASD_TUNNEL_KEY` | Base64-encoded SSH private key (for Docker/CI) |
 | `ASD_TUNNEL_KEY_ID` | SSH key UUID (required with `ASD_TUNNEL_KEY`) |
-| `ASD_TUNNEL_HOST` | Tunnel server hostname (optional, auto-detected) |
-| `ASD_TUNNEL_PORT` | Tunnel server SSH port (optional, default 2222) |
+| `ASD_TUNNEL_HOST` | Relay hostname (optional, auto-detected) |
+| `ASD_TUNNEL_PORT` | Relay SSH port (optional, default 2222) |
 
 **Service credentials:**
 
@@ -823,29 +915,29 @@ Key environment variables for ASD:
 
 | Command | Status |
 |---------|--------|
-| `asd init` | ✅ |
-| `asd run` | 🟢 |
-| `asd net` | ✅ |
-| `asd net apply` | ✅ |
-| `asd expose` | 🟢 |
-| `asd login` / `asd login key` | 🟢 |
-| `asd auth status/whoami/export` | 🟢 |
-| `asd terminal` | 🟢 |
-| `asd code` | 🟢 |
-| `asd database` | 🟢 |
-| `asd caddy` | ✅ |
-| `asd config validate` | 🟢 |
-| `asd token create/verify` | 🟢 |
-| `asd skill install/list/status` | 🟢 |
-| `asd gh` | 🟡 |
-| `asd inspect` | 🟠 |
-| `asd deps install/update` | 🟢 |
-| `asd ac install/remove/status/refresh` | 🟢 |
-| `asd macro / asd macro <name>` | ✅ (new in 2.6) |
-| `asd schema / asd schema automation` | ✅ (new in 2.6) |
-| `asd rules` | 🟢 (new in 2.6) |
-| `asd flow` | 🟢 (new in 2.6) |
-| `asd update` | ✅ (fixed on Windows + Termux in 2.6) |
+| `via init` | ✅ |
+| `via run` | 🟢 |
+| `via net` | ✅ |
+| `via net apply` | ✅ |
+| `via expose` | 🟢 |
+| `via login` / `via logout` / `via whoami` | 🟢 |
+| `via auth export` | 🟢 |
+| `via terminal` | 🟢 |
+| `via code` | 🟢 |
+| `via database` | 🟢 |
+| `via caddy` | ✅ |
+| `via config validate` | 🟢 |
+| `via relay add/list/info/set/rotate-key/remove` | 🟢 |
+| `via skill install/list/status` | 🟢 |
+| `via gh` | 🟡 |
+| `via inspect` | 🟠 |
+| `via deps install/update` | 🟢 |
+| `via ac install/remove/status/refresh` | 🟢 |
+| `via macro / via macro <name>` | ✅ (new in 2.6) |
+| `via schema / via schema automation` | ✅ (new in 2.6) |
+| `via rules` | 🟢 (new in 2.6) |
+| `via flow` | 🟢 (new in 2.6) |
+| `via update` | ✅ (fixed on Windows + Termux in 2.6) |
 
 ---
 
@@ -855,16 +947,16 @@ Four introspection commands that surface the embedded source of truth —
 use these instead of digging through markdown files when you want
 accurate, live-from-code answers.
 
-### `asd macro`
+### `via macro`
 
 List every template macro available inside `${{ ... }}` expressions.
 
 ```bash
-asd macro                     # Grouped list of all 30 macros
-asd macro <name>              # Detail view with examples and notes
-asd macro exposedOrigin       # Forgiving lookup — works without prefix
-asd macro macro.exposedOrigin # Also works (exact id)
-asd macro --json              # Machine-readable dump for tooling
+via macro                     # Grouped list of all 30 macros
+via macro <name>              # Detail view with examples and notes
+via macro exposedOrigin       # Forgiving lookup — works without prefix
+via macro macro.exposedOrigin # Also works (exact id)
+via macro --json              # Machine-readable dump for tooling
 ```
 
 Backed by `modules/core/config/api.schema.ts::TEMPLATE_MACROS`. A CI
@@ -873,42 +965,42 @@ if a macro is added to the engine without a matching doc entry.
 
 See also: [`docs/TEMPLATE_MACROS.md`](./TEMPLATE_MACROS.md).
 
-### `asd schema`
+### `via schema`
 
 Print the full Zod-derived configuration schema — `asd.yaml`, service
 entries, `net.manifest.yaml`, plugin service entries — plus the
 template-macro reference.
 
 ```bash
-asd schema                    # Full config schema + macro index
-asd schema --json             # Machine-readable dump
-asd schema --ai               # Adds external-tool doc URLs
-asd schema automation         # Automation YAML schema (all step types)
-asd schema automation pty     # Filter to a single section
+via schema                    # Full config schema + macro index
+via schema --json             # Machine-readable dump
+via schema --ai               # Adds external-tool doc URLs
+via schema automation         # Automation YAML schema (all step types)
+via schema automation pty     # Filter to a single section
 ```
 
 Sources: `modules/core/config/asd-config.ts`, `modules/network/scripts/net.schema.ts`, `modules/automation/src/schema.ts`.
 
-### `asd rules`
+### `via rules`
 
 Behavioral rules for AI agents and contributors — routing patterns,
 auth flows, naming conventions.
 
 ```bash
-asd rules                     # All rules
-asd rules <category>          # Filter by category (e.g. routing, auth)
+via rules                     # All rules
+via rules <category>          # Filter by category (e.g. routing, auth)
 ```
 
-### `asd flow`
+### `via flow`
 
 Visualize the template-to-.env data pipeline: which templates are
 read, in what order, with which macros expanded at each stage.
 
 ```bash
-asd flow
+via flow
 ```
 
-Pairs with `asd macro` for understanding how a service's `env:` block
+Pairs with `via macro` for understanding how a service's `env:` block
 resolves from `tpl.env` → manifest env → asd.yaml service env.
 
 ---

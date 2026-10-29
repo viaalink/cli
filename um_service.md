@@ -1,8 +1,10 @@
-# ASD CLI Services
+# Viaalink CLI Services
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20
+**Version:** 2.6.0 | **Last Updated:** 2026-10-22
 
 Built-in services for remote development: web terminal, VS Code, database UI, and network inspection.
+
+`via` and `asd` are the same command; older scripts that call `asd` keep working.
 
 ---
 
@@ -10,14 +12,14 @@ Built-in services for remote development: web terminal, VS Code, database UI, an
 
 | Service | Command | Status | What It Does |
 |---------|---------|--------|--------------|
-| VS Code Server | `asd code` | 🟢 Stable | Browser-based IDE |
-| Web Terminal | `asd terminal` | 🟢 Stable | Shell access via browser |
-| Database UI | `asd database` | 🟢 Stable | Visual database manager |
-| Network Inspector | `asd inspect` | 🟠 Alpha | HTTP traffic debugging |
+| VS Code Server | `via code` | 🟢 Stable | Browser-based IDE |
+| Web Terminal | `via terminal` | 🟢 Stable | Shell access via browser |
+| Database UI | `via database` | 🟢 Stable | Visual database manager |
+| Network Inspector | `via inspect` | 🟠 Alpha | HTTP traffic debugging |
 
 ---
 
-## Web Terminal (`asd terminal`)
+## Web Terminal (`via terminal`)
 
 Browser-based terminal access powered by [ttyd](https://github.com/tsl0922/ttyd).
 
@@ -36,13 +38,13 @@ ASD_TTYD_USERNAME=admin
 ASD_TTYD_PASSWORD=your-secure-password
 
 # 2. Start
-asd terminal start
+via terminal start
 
 # 3. Access (run for menu)
-asd terminal
+via terminal
 
 # 4. Stop when done
-asd terminal stop
+via terminal stop
 ```
 
 ### Access URLs
@@ -53,9 +55,9 @@ After starting, you get three access methods:
 |--------|------------|----------|
 | **Local** | `http://localhost:<port>/` | Same machine |
 | **Caddy** | `http://asd.localhost/asde/terminal/` | Local network |
-| **Tunnel** | `https://hub-xxx.cicd.eu1.asd.engineer/asde/terminal/` | Anywhere |
+| **Tunnel** | `https://hub-x7k9m2.relay.example.com/asde/terminal/` | Anywhere |
 
-The `asd terminal` menu shows all URLs with the correct port and credentials.
+The `via terminal` menu shows all URLs with the correct port and credentials.
 
 ### Configuration
 
@@ -80,17 +82,18 @@ ASD_TTYD_SHELL_CMD=zsh
 
 ### Remote Access
 
-To access your terminal from anywhere:
+To access your terminal from anywhere (needs an enrolled relay — there is no
+default relay; run `via relay add '<enrolment link>'` once):
 
 ```bash
 # Start terminal
-asd terminal start
+via terminal start
 
 # Enable tunnel (if not already)
-asd net apply --tunnel
+via net apply --tunnel
 
 # Get the URL
-asd terminal
+via terminal
 # Look for "Tunnel:" URL in the menu
 ```
 
@@ -112,14 +115,14 @@ When project-level basic auth is enabled, ttyd routes through Caddy get addition
 | Problem | Solution |
 |---------|----------|
 | "Missing username/password" | Set `ASD_TTYD_USERNAME` and `ASD_TTYD_PASSWORD` in `.env` |
-| "Port in use" | `asd terminal stop` or kill the process on that port |
-| "Binary not found" | Run `asd init` to reinstall binaries |
-| "Can't connect via tunnel" | Check `asd net` - ensure hub service has tunnel URL |
+| "Port in use" | `via terminal stop` or kill the process on that port |
+| "Binary not found" | Run `via init` to reinstall binaries |
+| "Can't connect via tunnel" | Check `via net` - ensure hub service has tunnel URL |
 | "Connection drops" | Check network stability; tunnels auto-reconnect |
 
 ---
 
-## VS Code Server (`asd code`)
+## VS Code Server (`via code`)
 
 Browser-based VS Code powered by [code-server](https://github.com/coder/code-server).
 
@@ -135,13 +138,13 @@ Browser-based VS Code powered by [code-server](https://github.com/coder/code-ser
 
 ```bash
 # 1. Start
-asd code start
+via code start
 
 # 2. Access (run for menu)
-asd code
+via code
 
 # 3. Stop when done
-asd code stop
+via code stop
 ```
 
 ### Access URLs
@@ -150,7 +153,7 @@ asd code stop
 |--------|------------|----------|
 | **Local** | `http://localhost:<port>/` | Same machine |
 | **Caddy** | `http://asd.localhost/asde/codeserver/` | Local network |
-| **Tunnel** | `https://hub-xxx.cicd.eu1.asd.engineer/asde/codeserver/` | Anywhere |
+| **Tunnel** | `https://hub-x7k9m2.relay.example.com/asde/codeserver/` | Anywhere |
 
 ### Configuration
 
@@ -183,13 +186,13 @@ ASD_CODESERVER_AUTH=password
 ASD_CODESERVER_PASSWORD=your-secure-password
 
 # Start code-server
-asd code start
+via code start
 
 # Enable tunnel
-asd net apply --tunnel
+via net apply --tunnel
 
 # Get the URL
-asd code
+via code
 # Look for "Tunnel:" URL in the menu
 ```
 
@@ -221,14 +224,14 @@ code-server uses the [Open VSX](https://open-vsx.org/) marketplace, not Microsof
 | Problem | Solution |
 |---------|----------|
 | "Can't install extension" | Check Open VSX - extension may not be available |
-| "Port in use" | `asd code stop` or kill the process |
+| "Port in use" | `via code stop` or kill the process |
 | "Auth failing" | Verify `ASD_CODESERVER_AUTH` and password in `.env` |
 | "Slow/laggy" | Close unused tabs; check network connection |
 | "Extensions not loading" | Clear extension cache: remove `.asd/workspace/code/data/extensions` |
 
 ---
 
-## Database UI (`asd database`)
+## Database UI (`via database`)
 
 Visual database management powered by [DbGate](https://dbgate.org/).
 
@@ -253,13 +256,13 @@ Visual database management powered by [DbGate](https://dbgate.org/).
 
 ```bash
 # Start
-asd database start
+via database start
 
 # Access (opens browser)
-asd database
+via database
 
 # Stop
-asd database stop
+via database stop
 ```
 
 ### Access URLs
@@ -286,7 +289,7 @@ Database connections are configured within DbGate's UI - no additional env vars 
 
 ---
 
-## Network Inspector (`asd inspect`)
+## Network Inspector (`via inspect`)
 
 HTTP/HTTPS traffic debugging powered by [mitmproxy](https://mitmproxy.org/).
 
@@ -301,20 +304,20 @@ HTTP/HTTPS traffic debugging powered by [mitmproxy](https://mitmproxy.org/).
 
 ```bash
 # Start mitmproxy web UI
-asd inspect start
+via inspect start
 
 # Access the web interface
-asd inspect
+via inspect
 
 # Stop
-asd inspect stop
+via inspect stop
 ```
 
 ### Current Usage
 
 mitmproxy runs as a standalone proxy. To inspect traffic:
 
-1. Start the inspector: `asd inspect start`
+1. Start the inspector: `via inspect start`
 2. Configure your app to use the proxy: `http://localhost:8080`
 3. View traffic in the web UI
 
@@ -336,13 +339,13 @@ mitmproxy runs as a standalone proxy. To inspect traffic:
 
 ## Plugins
 
-Plugins extend ASD with additional network services from external tools.
+Plugins extend the CLI with additional network services from external tools.
 
 ### How Plugins Work
 
 Plugins are modules that define network services via a `net.manifest.yaml` file. When enabled:
 
-1. ASD loads the plugin's service definitions
+1. The CLI loads the plugin's service definitions
 2. Detects which plugin services are running
 3. Registers them in the network registry
 4. Creates Caddy routes automatically
@@ -360,7 +363,7 @@ project:
 Then apply the configuration:
 
 ```bash
-asd net apply --caddy
+via net apply --caddy
 ```
 
 ### Supabase Plugin
@@ -383,20 +386,20 @@ project:
   plugins: [supabase]
 
 # 2. Start Supabase + extract credentials
-asd plugin:supabase:bootstrap
+via supabase bootstrap
 
 # 3. View services in TUI
-asd net
+via net
 ```
 
 **Commands:**
 
 | Command | Description |
 |---------|-------------|
-| `asd plugin:supabase:bootstrap` | Start Supabase + extract env vars |
-| `asd plugin:supabase:start` | Start Supabase services |
-| `asd plugin:supabase:stop` | Stop Supabase services |
-| `asd plugin:supabase:extract` | Extract env vars to .env |
+| `via supabase bootstrap` | Start Supabase + extract env vars |
+| `via supabase start` | Start Supabase services |
+| `via supabase stop` | Stop Supabase services |
+| `via supabase extract` | Extract env vars to .env |
 
 **Environment extraction:**
 
@@ -453,7 +456,7 @@ services:
 Services are automatically registered when:
 1. The plugin is enabled in `asd.yaml`
 2. The service is running and healthy
-3. `asd net refresh` detects the service
+3. `via net refresh` detects the service
 
 ### Available Plugins
 
@@ -472,38 +475,38 @@ More plugins planned for future releases.
 **Interactive menu:**
 
 ```bash
-asd terminal      # Shows status, URLs, and actions
-asd code          # Shows status, URLs, and actions
-asd database      # Shows status, URLs, and actions
+via terminal      # Shows status, URLs, and actions
+via code          # Shows status, URLs, and actions
+via database      # Shows status, URLs, and actions
 ```
 
 **Direct start:**
 
 ```bash
-asd terminal start
-asd code start
-asd database start
+via terminal start
+via code start
+via database start
 ```
 
 ### Stopping Services
 
 ```bash
-asd terminal stop
-asd code stop
-asd database stop
+via terminal stop
+via code stop
+via database stop
 ```
 
 ### Checking Status
 
 ```bash
-asd net           # TUI shows all services
-asd net refresh   # Update health status
+via net           # TUI shows all services
+via net refresh   # Update health status
 ```
 
 ### Service Registration
 
 When services start, they register in the network registry:
-- Appear in `asd net` TUI
+- Appear in `via net` TUI
 - Get Caddy routes automatically
 - Accessible via path-based URLs
 
@@ -531,9 +534,9 @@ ASD_CODESERVER_PORT=8080
 
 ## Tips
 
-- **First time?** Run `asd init` to install all service binaries
+- **First time?** Run `via init` to install all service binaries
 - **Service missing?** Check that binaries downloaded during init
-- **Can't access remotely?** Ensure tunnel is active (`asd net apply --tunnel`)
+- **Can't access remotely?** Ensure tunnel is active (`via net apply --tunnel`)
 - **Credentials not working?** Check `.env` file, not shell environment
 
 ---

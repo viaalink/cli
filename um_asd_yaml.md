@@ -1,9 +1,11 @@
-# ASD CLI Advanced Manual (asd.yaml and Operations)
+# Viaalink CLI Advanced Manual (asd.yaml and Operations)
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20
+**Version:** 2.7.0 | **Last Updated:** 2026-10-22
 
 This is the deep-dive reference. If you want the quick, simple flow, start here:
 - `docs/USER_MANUAL.md`
+
+`via` and `asd` are the same command; older scripts that call `asd` keep working.
 
 Template macros are fully documented in [`TEMPLATE_MACROS.md`](./TEMPLATE_MACROS.md) (auto-generated from the engine source, stays current). Release-over-release changes are in [../CHANGELOG.md](../CHANGELOG.md).
 
@@ -65,7 +67,7 @@ network:
     webhook-receiver:
       dial: "127.0.0.1:9000"
       public: true                 # Enable public tunnel for this service
-      subdomain: "webhook"         # Subdomain: webhook-xxx.tunnel.asd.host
+      subdomain: "webhook"         # Subdomain: webhook-x7k9m2.relay.example.com
 ```
 
 **Service Properties:**
@@ -104,14 +106,14 @@ network:
 
 **Finding service-ids:**
 - **From config:** Look at `network.services` keys in `asd.yaml`
-- **From TUI:** Run `asd net` - IDs shown in the Services table
+- **From TUI:** Run `via net` - IDs shown in the Services table
 - **Plugin services:** Use namespaced IDs like `supabase:studio`, `supabase:kong`
 
 **Using service-ids in commands:**
 ```bash
-asd net expose start my-frontend    # Start tunnel for "my-frontend"
-asd net stop api-server             # Stop "api-server"
-asd net open supabase:studio        # Open Supabase Studio in browser
+via net expose start my-frontend    # Start tunnel for "my-frontend"
+via net stop api-server             # Stop "api-server"
+via net open supabase:studio        # Open Supabase Studio in browser
 ```
 
 ### Feature Flags
@@ -122,7 +124,7 @@ features:
   auto_onboard_detected: true     # Auto-add discovered services to registry
   auto_install_binaries: true     # Download Caddy, ttyd on init
   auto_start_caddy: false         # Start Caddy automatically
-  auto_start_tunnel: false        # Start tunnel server automatically
+  auto_start_tunnel: false        # Start the relay client (asd-tunnel) automatically
   auto_start_ttyd: false          # Start web terminal automatically
   enable_restricted_ports: false  # Allow ports 80/443 (requires sudo)
   disable_authentication: false   # Disable basic auth globally
@@ -130,7 +132,7 @@ features:
 
 ### Automation Tasks
 
-Define reusable tasks that can be run with `asd run <task>`:
+Define reusable tasks that can be run with `via run <task>`:
 
 ```yaml
 automation:
@@ -150,9 +152,9 @@ automation:
 
 **Run tasks with:**
 ```bash
-asd run dev               # Simple, recommended way
-asd run prod
-asd up --task=dev         # Alternative with more options
+via run dev               # Simple, recommended way
+via run prod
+via up --task=dev         # Alternative with more options
 ```
 
 **Task Properties:**
@@ -167,7 +169,7 @@ asd up --task=dev         # Alternative with more options
 
 **Convention-based defaults:**
 
-When running `asd up` without `--task`, it tries these names in order:
+When running `via up` without `--task`, it tries these names in order:
 1. `up`
 2. `dev`
 3. `start`
@@ -259,7 +261,7 @@ Allow a service to be embedded in an iframe from a specific origin. Useful for d
 network:
   services:
     supabase:studio:
-      iframeOrigin: "https://dashboard.asd.engineer"
+      iframeOrigin: "https://dashboard.example.com"
       deleteResponseHeaders: ["Content-Security-Policy"]
 ```
 
@@ -282,7 +284,7 @@ The ingress tag is added as a response header. By default, all services use the 
 
 ### Declarative Environment Variables
 
-Services can declare environment variables that are automatically written to `.env` during `asd net apply`. This is useful for configuring services with tunnel URLs that are only known after tunnels are created.
+Services can declare environment variables that are automatically written to `.env` during `via net apply`. This is useful for configuring services with tunnel URLs that are only known after tunnels are created.
 
 ```yaml
 network:
@@ -296,18 +298,18 @@ network:
         SUPABASE_AUTH_SITE_URL: "${{ macro.exposedOrigin() }}"
 ```
 
-After `asd net apply`, your `.env` will contain:
+After `via net apply`, your `.env` will contain:
 
 ```bash
-PUBLIC_WEBSITE_BASE_URL=https://app-fkmc.cicd.eu1.asd.engineer
-SUPABASE_AUTH_SITE_URL=https://app-fkmc.cicd.eu1.asd.engineer
+PUBLIC_WEBSITE_BASE_URL=https://app-x7k9m2.relay.example.com
+SUPABASE_AUTH_SITE_URL=https://app-x7k9m2.relay.example.com
 ```
 
 **Key behaviors:**
 
 - Values support all template macros (`${{ macro.* }}`, `${{ env.* }}`)
 - The parameterless `exposedOrigin()` reads the `subdomain` from the same service block
-- If tunnel credentials are not available, the env var is skipped (not written as empty)
+- If no relay is enrolled (no tunnel credentials), the env var is skipped (not written as empty)
 - Writing is idempotent — re-running `net apply` only writes if values changed
 - Use `exposedOriginWithAuth()` to include basic auth credentials in the URL
 
@@ -316,7 +318,7 @@ SUPABASE_AUTH_SITE_URL=https://app-fkmc.cicd.eu1.asd.engineer
 ```yaml
 env:
   APP_URL: "${{ macro.exposedOriginWithAuth() }}"
-  # Result: https://admin:password@app-fkmc.cicd.eu1.asd.engineer
+  # Result: https://admin:password@app-x7k9m2.relay.example.com
   # Reads ASD_BASIC_AUTH_USERNAME and ASD_BASIC_AUTH_PASSWORD from .env
 ```
 
@@ -324,7 +326,7 @@ env:
 
 ## Plugins Configuration
 
-Plugins extend ASD with network services from external tools like Supabase.
+Plugins extend the CLI with network services from external tools like Supabase.
 
 ### Enabling Plugins
 
@@ -373,10 +375,10 @@ Plugins may register CLI commands using the `plugin:<name>:<command>` pattern:
 
 ```bash
 # Supabase plugin commands
-asd plugin:supabase:bootstrap   # Start + extract env vars
-asd plugin:supabase:start       # Start services
-asd plugin:supabase:stop        # Stop services
-asd plugin:supabase:extract     # Extract env vars only
+via plugin:supabase:bootstrap   # Start + extract env vars
+via plugin:supabase:start       # Start services
+via plugin:supabase:stop        # Stop services
+via plugin:supabase:extract     # Extract env vars only
 ```
 
 ### Tunnel Protocol for Plugins
@@ -403,8 +405,8 @@ Examples:
 Use these IDs in commands:
 
 ```bash
-asd net open supabase:studio    # Open in browser
-asd net expose start supabase:kong  # Start tunnel
+via net open supabase:studio    # Open in browser
+via net expose start supabase:kong  # Start tunnel
 ```
 
 ### Template Macros Reference
@@ -415,9 +417,9 @@ moved to a dedicated reference that's generated from the engine itself
 
 - 📖 **[Template Macros reference](./TEMPLATE_MACROS.md)** — all 30
   macros, grouped, with runnable examples. Regenerated from
-  `asd macro --json` by `just docs-generate`.
-- 🔴 **Live**: `asd macro` for the grouped list, `asd macro <name>`
-  for detail. Forgiving lookup — `asd macro exposedOrigin` works.
+  `via macro --json` by `just docs-generate`.
+- 🔴 **Live**: `via macro` for the grouped list, `via macro <name>`
+  for detail. Forgiving lookup — `via macro exposedOrigin` works.
 - 💡 **Where each one resolves**: `tpl.env` accepts only the four
   allocator macros (`getRandomPort`, `getRandomPorts`,
   `getRandomString`, `getPortRange`). All 30 work inside
@@ -436,12 +438,12 @@ backward compatibility; new code should use `${{ macro.X }}`.
 
 ## Initialization & Workspace
 
-### `asd init`
+### `via init`
 
 Full workspace initialization:
 
 ```bash
-asd init
+via init
 ```
 
 **What it does:**
@@ -453,17 +455,17 @@ asd init
 
 **Options:**
 ```bash
-asd init --yes              # Accept all defaults (non-interactive)
-asd init --skip-binaries    # Skip binary downloads
+via init --yes              # Accept all defaults (non-interactive)
+via init --skip-binaries    # Skip binary downloads
 ```
 
-### `asd env-init`
+### `via env-init`
 
 Manage environment variables only:
 
 ```bash
-asd env-init                # Merge with existing .env
-asd env-init --override     # Replace entire .env
+via env-init                # Merge with existing .env
+via env-init --override     # Replace entire .env
 ```
 
 ### Workspace Structure
@@ -520,7 +522,19 @@ preferences:
 
 tui:
   borderStyle: "honeywell"        # "honeywell" or "minimal"
+
+vault:                            # where `via vault` keeps secrets
+  provider: s3                    # "local" (default) or "s3"
+  scope: default                  # scope for names without one
+  s3:
+    bucket: my-secrets
+    endpoint: https://<account>.r2.cloudflarestorage.com   # omit for AWS S3
+    # credentials: S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY env, or `profile: <name>`
 ```
+
+A project's `asd.yaml` may set only `vault.scope` and `vault.s3.prefix`
+(where secrets go is never taken from a repository); see
+[Secrets in the command reference](./um_commands.md#secrets-via-vault).
 
 ### Setting Preferences
 
@@ -541,7 +555,7 @@ ASD_SKIP_BINARIES=codeserver,mitmproxy  # Skip specific binaries
 The interactive TUI provides real-time service monitoring:
 
 ```bash
-asd net
+via net
 ```
 
 **Keyboard shortcuts:**
@@ -566,31 +580,31 @@ asd net
 
 **Apply configuration:**
 ```bash
-asd net apply              # Apply asd.yaml, start Caddy
-asd net apply --caddy      # Start Caddy reverse proxy
-asd net apply --tunnel     # Start tunnels for tunnel-preferred services
+via net apply              # Apply asd.yaml, start Caddy
+via net apply --caddy      # Start Caddy reverse proxy
+via net apply --tunnel     # Start tunnels for tunnel-preferred services
 ```
 
 **Service operations:**
 ```bash
-asd net refresh            # Re-detect services and update health
-asd net start <id>         # Start a service
-asd net stop <id>          # Stop a service
-asd net remove <id>        # Remove from registry
-asd net open <id>          # Open service URL in browser
+via net refresh            # Re-detect services and update health
+via net start <id>         # Start a service
+via net stop <id>          # Stop a service
+via net remove <id>        # Remove from registry
+via net open <id>          # Open service URL in browser
 ```
 
 **Discovery:**
 ```bash
-asd net discover           # Scan for running services
-asd net pending            # List services pending onboarding
-asd net onboard <id>       # Add discovered service to registry
+via net discover           # Scan for running services
+via net pending            # List services pending onboarding
+via net onboard <id>       # Add discovered service to registry
 ```
 
 **Maintenance:**
 ```bash
-asd net clean              # Remove stale entries
-asd net reset              # Clear registry and restart
+via net clean              # Remove stale entries
+via net reset              # Clear registry and restart
 ```
 
 ### Health Checks
@@ -604,8 +618,8 @@ Services are validated through a multi-level cascade:
 
 Refresh health status:
 ```bash
-asd net refresh            # Update all health checks
-asd net healthcheck <id>   # Check specific service
+via net refresh            # Update all health checks
+via net healthcheck <id>   # Check specific service
 ```
 
 ---
@@ -617,22 +631,22 @@ Create secure public URLs for local services.
 ### Starting Tunnels
 
 **From TUI:**
-1. `asd net` to open TUI
+1. `via net` to open TUI
 2. Select a service
 3. Press `Enter` -> "Start Tunnel"
 
 **From CLI:**
 ```bash
-asd net expose start <service-id>
-asd net expose start --all        # Start all tunnel-preferred services
+via net expose start <service-id>
+via net expose start --all        # Start all tunnel-preferred services
 ```
 
 ### Stopping Tunnels
 
 ```bash
-asd net expose stop <service-id>
-asd net expose stop --all
-asd net expose reset              # Kill all tunnels, clear state
+via net expose stop <service-id>
+via net expose stop --all
+via net expose reset              # Kill all tunnels, clear state
 ```
 
 ### Tunnel Configuration
@@ -645,29 +659,30 @@ network:
     my-app:
       dial: "127.0.0.1:3000"
       public: true                 # Enable tunnel for this service
-      subdomain: "myapp"           # URL: myapp-xxx.tunnel.asd.host
+      subdomain: "myapp"           # URL: myapp-x7k9m2.relay.example.com
       tunnelProtocol: "http"       # "http" or "tcp"
 ```
 
 **Tunnel URL Format:**
 ```
-https://{prefix}-{random}.tunnel.asd.host
+https://{prefix}-{client-id}.{relay-domain}   # relay shared by several devices
+https://{prefix}.{relay-domain}               # your own (dedicated) relay
 ```
 
 ## Exposing Services
 
-ASD provides multiple ways to expose local services. Choose based on your needs.
+The CLI provides multiple ways to expose local services. Choose based on your needs.
 
-### Quick Exposure (`asd expose`)
+### Quick Exposure (`via expose`)
 
 One-command service exposure through Caddy with optional public tunnel:
 
 ```bash
-asd expose 3000                    # Expose port 3000 via Caddy
-asd expose 3000 --name myapp       # With name prefix in tunnel URL
+via expose 3000                    # Expose port 3000 via Caddy
+via expose 3000 --name myapp       # With name prefix in tunnel URL
 ```
 
-The `--name` sets a prefix for the tunnel URL: `<name>-<client-id>.cicd.eu1.asd.engineer`.
+The `--name` sets a prefix for the tunnel URL: `<name>-<client-id>.<relay-domain>` (on your own dedicated relay: `<name>.<relay-domain>`). `--server <relay-name>` publishes through another enrolled relay, `--domain <host>` under another domain of the relay.
 
 **What it does:**
 1. Starts Caddy if not running
@@ -676,60 +691,55 @@ The `--name` sets a prefix for the tunnel URL: `<name>-<client-id>.cicd.eu1.asd.
 
 **Managing exposed services:**
 ```bash
-asd expose list                    # List all exposed services
-asd expose stop myapp              # Stop by name
-asd expose stop 3000               # Stop by port
+via expose list                    # List all exposed services
+via expose stop myapp              # Stop by name
+via expose stop 3000               # Stop by port
 ```
 
 ### Tunnel Authentication
 
-Before using tunnels, get credentials via one of these methods:
+There is no default relay. Before using tunnels, enrol this device on a relay
+with the link from the relay's dashboard (quote it):
 
-**Method 1: Ephemeral Token (Quick Testing)**
 ```bash
-curl -X POST https://asd.engineer/functions/v1/create-ephemeral-token
-# Returns 5-minute credentials - no account needed
+via relay add '<enrolment link>'
 ```
 
-**Method 2: Tunnel Token (CI/CD)**
-1. Create account at [asd.host](https://asd.host)
-2. Go to Account → Tunnel Tokens → Create
-3. Set in `.env`:
-```bash
-ASD_TUNNEL_TOKEN=your-token
-ASD_TUNNEL_USER=your-user-id
-```
+A private, self-hosted relay is added by host and key:
+`via relay add <name> --host <host> --key <path> [--port <port>] [--domain <domain>]`.
 
 **Check status:**
 ```bash
-asd auth status                    # Show auth status
+via relay list                     # Relays this device knows, the default marked
+via relay info <name>              # Details of one relay
 ```
 
-> **Note:** CLI-based login (`asd login`) is coming in the next release.
+> **Note:** `via login` signs you in to your viaalink.com account; relay credentials come from `via relay add '<enrolment link>'`.
 
-### Network Tunnel Control (`asd net expose`)
+### Network Tunnel Control (`via net expose`)
 
 Enable/disable tunnels for services defined in `asd.yaml`:
 
 ```bash
-asd net expose start <service-id>  # Enable tunnel for service
-asd net expose start --all         # Enable all tunnel-preferred services
-asd net expose stop <service-id>   # Disable tunnel
-asd net expose reset               # Kill all tunnels, clear state
+via net expose start <service-id>  # Enable tunnel for service
+via net expose start --all         # Enable all tunnel-preferred services
+via net expose stop <service-id>   # Disable tunnel
+via net expose reset               # Kill all tunnels, clear state
 ```
 
 ### When to Use Each
 
 | Need | Use |
 |------|-----|
-| Quick share a port | `asd expose <port>` |
-| Share a configured service | `asd net expose start <service-id>` |
-| Authenticate with hub | `asd login` |
-| Manage credentials | `asd auth credentials` / `asd auth switch` |
+| Quick share a port | `via expose <port>` |
+| Share a configured service | `via net expose start <service-id>` |
+| Enrol on a relay | `via relay add '<enrolment link>'` |
+| Sign in to viaalink.com | `via login` |
+| Switch credentials | `via auth switch` |
 
 ---
 
-## GitHub Integration (`asd gh`)
+## GitHub Integration (`via gh`)
 
 Remote development and CI/CD integration.
 
@@ -738,35 +748,54 @@ Remote development and CI/CD integration.
 Install GitHub workflows for remote terminal access:
 
 ```bash
-asd gh setup
+via gh setup
 ```
 
-This adds workflow files to `.github/workflows/` for remote debugging.
+This adds `.github/workflows/terminal.yml`. The workflow publishes through
+your relay with a device key kept in four repository secrets. On a device
+enrolled on the relay (`via relay add '<enrolment link>'`), run
+`via auth export` and store each value it prints as a secret of the same name:
+
+| Secret | Value |
+|--------|-------|
+| `ASD_TUNNEL_KEY` | The device key (base64) |
+| `ASD_TUNNEL_KEY_ID` | The device key's id |
+| `ASD_TUNNEL_HOST` | The relay host |
+| `ASD_TUNNEL_PORT` | The relay SSH port (optional; 2222 when unset) |
+
+```bash
+gh secret set ASD_TUNNEL_KEY --repo <owner>/<repo>   # paste the value; repeat per secret
+```
+
+Whoever opens the terminal can read that key on the runner, so enrol a
+device for CI alone. `via gh terminal` checks the secrets are there before it
+starts a run.
 
 ### Remote Terminal
 
 Start a web terminal in GitHub Actions:
 
 ```bash
-asd gh terminal
+via gh terminal
 ```
 
 This triggers a workflow that:
-1. Starts a ttyd web terminal
-2. Creates a secure tunnel
-3. Provides a URL to access the terminal
+1. Installs the CLI on the runner
+2. Starts a ttyd web terminal (or code-server)
+3. Publishes it through your relay with the key from the repository secrets
+4. Provides a URL to access the terminal
 
 ### Available Commands
 
 ```bash
-asd gh                     # Show GitHub integration menu
-asd gh setup               # Install workflow files
-asd gh terminal            # Start remote terminal session
-asd gh list                # List recent workflow runs
-asd gh runs                # Show active runs
-asd gh active              # Check active sessions
-asd gh stop                # Stop running session
-asd gh login               # Configure GitHub authentication
+via gh                     # Show GitHub integration menu
+via gh setup               # Install workflow files
+via gh terminal            # Start remote terminal session
+via gh list                # List recent workflow runs
+via gh runs                # Show active runs
+via gh active              # Check active sessions
+via gh stop                # Stop running session
+via gh login               # Configure GitHub authentication
 ```
 
 ---
@@ -776,16 +805,16 @@ asd gh login               # Configure GitHub authentication
 ### Self-Update
 
 ```bash
-asd update                 # Update to latest version
-asd update --check         # Check for updates only
-asd update --force         # Force reinstall
+via update                 # Update to latest version
+via update --check         # Check for updates only
+via update --force         # Force reinstall
 ```
 
 ### Version Information
 
 ```bash
-asd --version              # Current version
-asd update version         # Current and latest versions
+via --version              # Current version
+via update version         # Current and latest versions
 ```
 
 ---
@@ -796,29 +825,29 @@ asd update version         # Current and latest versions
 
 **"Caddy won't start":**
 ```bash
-asd caddy stop
+via caddy stop
 rm -rf .asd/workspace/caddy/
-asd caddy start
-asd net apply
+via caddy start
+via net apply
 ```
 
 **"Tunnels not connecting":**
 ```bash
 pkill -f "asd-tunnel"
 rm -rf .asd/workspace/tunnels/
-asd net apply --tunnel
+via net apply --tunnel
 ```
 
 **"Services not appearing":**
 ```bash
-asd net refresh            # Re-scan for services
-asd net discover           # Manual discovery
+via net refresh            # Re-scan for services
+via net discover           # Manual discovery
 ```
 
 **"Registry corruption":**
 ```bash
 rm .asd/workspace/network/registry.json
-asd net apply
+via net apply
 ```
 
 ### Full Reset
@@ -834,8 +863,8 @@ pkill -f "asd-tunnel"
 rm -rf .asd/workspace/
 
 # Re-initialize
-asd init
-asd net apply --caddy --tunnel
+via init
+via net apply --caddy --tunnel
 ```
 
 ### Debug Mode
@@ -843,8 +872,8 @@ asd net apply --caddy --tunnel
 Enable verbose output:
 
 ```bash
-ASD_DEBUG=1 asd net apply
-ASD_VERBOSE=1 asd init
+ASD_DEBUG=1 via net apply
+ASD_VERBOSE=1 via init
 ```
 
 ### Logs
@@ -852,8 +881,8 @@ ASD_VERBOSE=1 asd init
 View service logs:
 
 ```bash
-asd logs caddy             # Caddy proxy logs
-asd logs tunnel            # Tunnel logs
+via logs caddy             # Caddy proxy logs
+via logs tunnel            # Tunnel logs
 ```
 
 Logs are stored in `.asd/workspace/logs/`.
@@ -866,26 +895,26 @@ Logs are stored in `.asd/workspace/logs/`.
 
 | Command | Description |
 |---------|-------------|
-| `asd init` | Initialize workspace |
-| `asd login` | Login to ASD hub |
-| `asd help` | Show help |
-| `asd version` | Show version |
-| `asd update` | Self-update |
+| `via init` | Initialize workspace |
+| `via login` | Sign in to your viaalink.com account |
+| `via help` | Show help |
+| `via --version` | Show version |
+| `via update` | Self-update |
 
 ### Network Commands
 
 | Command | Description |
 |---------|-------------|
-| `asd net` | Open network TUI |
-| `asd net apply` | Apply configuration |
-| `asd net refresh` | Refresh health checks |
-| `asd net discover` | Discover services |
-| `asd net start <id>` | Start a service |
-| `asd net stop <id>` | Stop a service |
-| `asd net open <id>` | Open service URL in browser |
-| `asd net expose start <id>` | Start tunnel for service |
-| `asd net expose stop <id>` | Stop tunnel for service |
-| `asd net expose reset` | Kill all tunnels, clear state |
+| `via net` | Open network TUI |
+| `via net apply` | Apply configuration |
+| `via net refresh` | Refresh health checks |
+| `via net discover` | Discover services |
+| `via net start <id>` | Start a service |
+| `via net stop <id>` | Stop a service |
+| `via net open <id>` | Open service URL in browser |
+| `via net expose start <id>` | Start tunnel for service |
+| `via net expose stop <id>` | Stop tunnel for service |
+| `via net expose reset` | Kill all tunnels, clear state |
 
 ### Service Commands
 
@@ -893,64 +922,78 @@ Logs are stored in `.asd/workspace/logs/`.
 
 | Command | Description |
 |---------|-------------|
-| `asd code` | VS Code server menu (status, URLs, start/stop) |
-| `asd terminal` | Web terminal menu |
-| `asd database` | Database manager menu (DbGate) |
-| `asd inspect` | Network inspector menu (mitmproxy) |
+| `via code` | VS Code server menu (status, URLs, start/stop) |
+| `via terminal` | Web terminal menu |
+| `via database` | Database manager menu (DbGate) |
+| `via inspect` | Network inspector menu (mitmproxy) |
 
 **Direct Commands:**
 
 | Command | Description |
 |---------|-------------|
-| `asd code start` | Start VS Code server |
-| `asd code stop` | Stop VS Code server |
-| `asd terminal start` | Start web terminal (ttyd) |
-| `asd terminal stop` | Stop web terminal |
-| `asd database start` | Start database manager |
-| `asd database stop` | Stop database manager |
-| `asd inspect start` | Start network inspector |
-| `asd inspect stop` | Stop network inspector |
-| `asd caddy start` | Start Caddy reverse proxy |
-| `asd caddy stop` | Stop Caddy reverse proxy |
-| `asd caddy restart` | Restart Caddy |
+| `via code start` | Start VS Code server |
+| `via code stop` | Stop VS Code server |
+| `via terminal start` | Start web terminal (ttyd) |
+| `via terminal stop` | Stop web terminal |
+| `via database start` | Start database manager |
+| `via database stop` | Stop database manager |
+| `via inspect start` | Start network inspector |
+| `via inspect stop` | Stop network inspector |
+| `via caddy start` | Start Caddy reverse proxy |
+| `via caddy stop` | Stop Caddy reverse proxy |
+| `via caddy restart` | Restart Caddy |
 
 ### Expose Commands
 
 | Command | Description |
 |---------|-------------|
-| `asd expose <port>` | Expose port via Caddy + tunnel |
-| `asd expose <port> --name <name>` | Expose with custom name |
-| `asd expose list` | List exposed services |
-| `asd expose stop <name>` | Stop exposed service |
+| `via expose <port>` | Expose port via Caddy + tunnel |
+| `via expose <port> --name <name>` | Expose with custom name |
+| `via expose list` | List exposed services |
+| `via expose stop <name>` | Stop exposed service |
 
 ### Auth Commands
 
 | Command | Description |
 |---------|-------------|
-| `asd login` | Login to ASD hub |
-| `asd auth status` | Show auth status |
-| `asd auth credentials` | Show all credentials |
-| `asd auth switch` | Interactive credential and server switcher |
+| `via login` | Sign in to your viaalink.com account |
+| `via logout` | Sign out of viaalink.com |
+| `via whoami` | Show the signed-in account and its licenses |
+| `via auth switch` | Interactive credential and relay switcher |
+| `via auth export` | Export the active relay key as env vars (Docker/CI) |
+
+### Relay Commands
+
+| Command | Description |
+|---------|-------------|
+| `via relay add '<enrolment link>'` | Enrol this device on a relay |
+| `via relay add <name> --host <host> --key <path>` | Add a private, self-hosted relay |
+| `via relay list` | List relays |
+| `via relay info <name>` | Show relay details |
+| `via relay set <name>` | Set the default relay |
+| `via relay rotate-key [name]` | Replace this device's key on its relay |
+| `via relay remove <name>` | Sign out of the relay and remove it locally |
 
 ### GitHub Commands
 
 | Command | Description |
 |---------|-------------|
-| `asd gh` | Show GitHub integration menu |
-| `asd gh setup` | Install workflows |
-| `asd gh terminal` | Start remote terminal |
-| `asd gh list` | List workflow runs |
-| `asd gh runs` | Show active workflow runs |
-| `asd gh active` | Check active sessions |
-| `asd gh stop` | Stop running session |
-| `asd gh login` | Configure GitHub authentication |
+| `via gh` | Show GitHub integration menu |
+| `via gh setup` | Install workflows |
+| `via gh terminal` | Start remote terminal |
+| `via gh list` | List workflow runs |
+| `via gh runs` | Show active workflow runs |
+| `via gh active` | Check active sessions |
+| `via gh stop` | Stop running session |
+| `via gh login` | Configure GitHub authentication |
 
 ---
 
 ## Getting Help
 
-- **GitHub Issues:** https://github.com/asd-engineering/asd-cli/issues
-- **Documentation:** https://asd.host/docs
+- **GitHub Issues:** https://github.com/viaalink/cli/issues
+- **Releases:** https://github.com/viaalink/cli/releases
+- **Documentation:** `via docs` (built-in documentation browser)
 
 ---
 

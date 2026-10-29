@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ASD CLI Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
+# Viaalink CLI Installer — installs the CLI as `via` and as `asd`
+# Usage: curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 #
 # Options (via environment variables):
 #   INSTALL_DIR  - Custom install directory (default: ~/.local/bin)
@@ -10,18 +10,16 @@
 #                          Supports: file:///path/to/dir, http://..., or /absolute/path
 #
 # Examples:
-#   curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash                              # Latest
-#   curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | VERSION=v2.1.8-beta.1 bash        # Specific version
-#   curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | VERSION=list bash                 # List versions
+#   curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash                              # Latest
+#   curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | VERSION=v2.1.8-beta.1 bash        # Specific version
+#   curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | VERSION=list bash                 # List versions
 #
-# After installation, update with: asd update
+# After installation, update with: via update
 
 set -euo pipefail
 
-# Configuration - Public repo for distribution (no auth required)
-REPO="asd-engineering/asd-cli"
-# Fallback to private repo if public doesn't have releases yet
-FALLBACK_REPO="asd-engineering/.asd"
+# Releases come only from the public viaalink/cli repo on GitHub.
+REPO="viaalink/cli"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 VERSION="${VERSION:-}"
 ASD_INSTALL_BASE_URL="${ASD_INSTALL_BASE_URL:-}"
@@ -58,6 +56,56 @@ atomic_install_file() {
   cp -f "$src" "$tmp" || { rm -f "$tmp"; error "copy failed: $src"; }
   chmod +x "$tmp" 2>/dev/null || true
   mv -f "$tmp" "$dest" || { rm -f "$tmp"; error "atomic move failed: $dest"; }
+}
+
+# Point the link DEST at TARGET the same way: build the link under a temp
+# name in DEST's directory, then rename(2) it over DEST. `ln -sf` unlinks
+# first, so a concurrent `asd`/`via` launch could find no file at all.
+atomic_symlink() {
+  local target="$1" dest="$2" dest_dir tmp
+  dest_dir="$(dirname "$dest")"
+  mkdir -p "$dest_dir"
+  [[ -d "$dest" && ! -L "$dest" ]] && error "$dest is a directory, not a place for the CLI"
+  tmp="$dest_dir/.asd-link.$$.$RANDOM"
+  ln -s "$target" "$tmp" || error "symlink failed: $tmp"
+  mv -f "$tmp" "$dest" || { rm -f "$tmp"; error "atomic move failed: $dest"; }
+}
+
+# Replace the directory DEST with a copy of SRC without removing DEST in place.
+#
+# `rm -rf DEST` fails the whole install when the old tree is still in use:
+# release v3.0.0's macOS e2e died on "Directory not empty" because a running
+# code-server kept writing into its own lib/ while rm was walking it. Copy
+# SRC to a sibling of DEST (same filesystem), rename DEST aside, rename the
+# copy into place, then remove the old tree best-effort. A process still
+# inside the old tree keeps it; the next install removes the leftover.
+replace_dir() {
+  local src="$1" dest="$2" parent name stage aside stale
+  parent="$(dirname "$dest")"
+  name="$(basename "$dest")"
+  mkdir -p "$parent"
+  # Trees an earlier install could not remove. Only ".old-" ones: a ".new-"
+  # one may be another installer's copy in progress.
+  for stale in "$parent/.$name.old-"*; do
+    [[ -e "$stale" ]] || continue
+    rm -rf "$stale" 2>/dev/null || true
+  done
+  stage="$(mktemp -d "$parent/.$name.new-XXXXXX")" || error "mktemp failed in $parent"
+  chmod 755 "$stage"
+  cp -R "$src/." "$stage/" || { rm -rf "$stage"; error "copy failed: $src"; }
+  aside=""
+  if [[ -e "$dest" || -L "$dest" ]]; then
+    aside="$parent/.$name.old-$(date +%s)-$$"
+    mv "$dest" "$aside" || { rm -rf "$stage"; error "could not move the previous $dest aside"; }
+  fi
+  if ! mv "$stage" "$dest"; then
+    [[ -n "$aside" ]] && mv "$aside" "$dest"
+    rm -rf "$stage"
+    error "could not move the new $name into $dest"
+  fi
+  if [[ -n "$aside" ]] && ! rm -rf "$aside" 2>/dev/null; then
+    warn "Could not remove the previous $name (still in use?): $aside — the next install removes it"
+  fi
 }
 
 # Resolve a path through any symlink chain. `readlink -f` is GNU-only in
@@ -146,7 +194,7 @@ detect_platform() {
 
 # List available releases from GitHub
 list_versions() {
-  local repos=("${REPO}" "${FALLBACK_REPO}")
+  local repos=("${REPO}")
   local auth_header=""
 
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -185,7 +233,7 @@ list_versions() {
       done <<< "$tags"
       echo ""
       info "Install a specific version:"
-      echo "  curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | VERSION=${example_tag:-$tag} bash"
+      echo "  curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | VERSION=${example_tag:-$tag} bash"
       echo ""
       return 0
     fi
@@ -203,7 +251,7 @@ get_version() {
     # Ensure it starts with 'v'
     [[ "$VERSION" != v* ]] && VERSION="v${VERSION}"
 
-    local repos=("${REPO}" "${FALLBACK_REPO}")
+    local repos=("${REPO}")
     local auth_header=""
 
     if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -233,7 +281,7 @@ get_version() {
   fi
 
   # No VERSION set — fetch latest
-  local repos=("${REPO}" "${FALLBACK_REPO}")
+  local repos=("${REPO}")
   local auth_header=""
 
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -262,7 +310,7 @@ get_version() {
     fi
   done
 
-  error "Failed to fetch latest release. Check your internet connection or set GITHUB_TOKEN for private repos."
+  error "Failed to fetch latest release. Check your internet connection."
 }
 
 # Minimal Termux install when no pre-built Termux archive exists anywhere.
@@ -276,9 +324,9 @@ _install_minimal_termux() {
   if command -v npm &>/dev/null; then
     info "Installing via npm (fallback for missing Termux archive)..."
     local npm_version="${version#v}"  # strip leading v
-    if npm install -g "@asd-engineering/cli@$npm_version" 2>/dev/null || \
-       npm install -g "@asd-engineering/cli@latest" 2>/dev/null; then
-      info "✅ ASD CLI installed via npm (minimal — Node.js runtime)"
+    if npm install -g "@viaalink/cli@$npm_version" 2>/dev/null || \
+       npm install -g "@viaalink/cli@latest" 2>/dev/null; then
+      info "✅ Viaalink CLI installed via npm (minimal — Node.js runtime)"
       info "   Version: $(asd --version 2>/dev/null || echo "$version")"
       echo ""
       warn "Native binaries (caddy, ttyd, code-server) are not bundled."
@@ -296,7 +344,7 @@ _install_minimal_termux() {
     local asd_home
     asd_home="$(get_asd_home)"
     local asd_src="$asd_home/src"
-    info "Cloning ASD CLI source for Node.js execution..."
+    info "Cloning Viaalink CLI source for Node.js execution..."
 
     if git clone --depth 1 "https://github.com/${repo}.git" "$asd_src" 2>/dev/null; then
       mkdir -p "$INSTALL_DIR"
@@ -308,9 +356,10 @@ set -eu
 exec "$node_bin" "$asd_src/cli.ts" "\$@"
 WRAPPER
       chmod +x "$INSTALL_DIR/asd"
+      atomic_symlink "$INSTALL_DIR/asd" "$INSTALL_DIR/via"
 
-      info "✅ ASD CLI installed (source — Node.js runtime)"
-      info "   Location: $INSTALL_DIR/asd"
+      info "✅ Viaalink CLI installed (source — Node.js runtime)"
+      info "   Location: $INSTALL_DIR/asd (also as $INSTALL_DIR/via)"
       echo ""
       warn "This is a source install without pre-built binaries."
       warn "Install helpers manually: pkg install caddy ttyd"
@@ -320,8 +369,8 @@ WRAPPER
 
   error "No Termux package found and fallback installation failed.
 Ensure Node.js and npm are installed: pkg install nodejs-lts
-Then try: npm install -g @asd-engineering/cli
-Or check https://github.com/asd-engineering/asd-cli/releases"
+Then try: npm install -g @viaalink/cli
+Or check https://github.com/viaalink/cli/releases"
 }
 
 # Download and install
@@ -495,6 +544,7 @@ install_asd() {
           local prev_url="https://github.com/${repo_for_download}/releases/download/${prev_tag}/${archive_name}"
           if _download "$prev_url" "$tmp_dir/$archive_name"; then
             found_version="$prev_tag"
+            version="$found_version"
             warn "Using Termux package from $found_version (latest available)"
             break
           fi
@@ -507,21 +557,56 @@ install_asd() {
 
       if [[ -z "$found_version" ]]; then
         warn "No Termux package found in any release."
-        warn "Installing minimal ASD CLI (Node.js wrapper only)..."
+        warn "Installing minimal Viaalink CLI (Node.js wrapper only)..."
         warn "Native binaries (caddy, ttyd, code-server) won't be pre-bundled."
         warn "Install them manually: pkg install caddy ttyd"
         echo ""
         _install_minimal_termux "$version" "$repo_for_download"
         return 0
       fi
-    elif [[ "$repo_for_download" == "$REPO" ]]; then
+    else
       error "Download failed. Binary may not be available for '${platform}'.
 Available platforms: linux-x64, linux-arm64, darwin-x64, darwin-arm64, windows-x64, termux-arm64.
-See https://github.com/asd-engineering/asd-cli/releases"
-    else
-      error "Download failed. For private repos, set GITHUB_TOKEN."
+See https://github.com/viaalink/cli/releases"
     fi
   fi
+
+  # Verify checksum against SHA256SUMS.txt
+  local checksums_name="SHA256SUMS.txt"
+  local checksums_url
+  if [[ -n "${ASD_INSTALL_BASE_URL:-}" ]]; then
+    checksums_url="${ASD_INSTALL_BASE_URL%/}/${checksums_name}"
+  else
+    checksums_url="https://github.com/${repo_for_download}/releases/download/${version}/${checksums_name}"
+  fi
+
+  info "Verifying archive checksum..."
+  if ! _download "$checksums_url" "$tmp_dir/$checksums_name"; then
+    error "Checksums file ($checksums_name) could not be downloaded for $version. Refusing install."
+  fi
+
+  local expected_hash
+  expected_hash=$( (grep -E "[[:space:]]\*?${archive_name}$" "$tmp_dir/$checksums_name" || true) | awk '{print $1}' | head -1 | tr '[:upper:]' '[:lower:]')
+  if [[ -z "$expected_hash" ]]; then
+    error "Checksum for $archive_name not found in $checksums_name. Refusing install."
+  fi
+
+  local actual_hash
+  if command -v sha256sum &>/dev/null; then
+    actual_hash=$(sha256sum "$tmp_dir/$archive_name" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+  elif command -v shasum &>/dev/null; then
+    actual_hash=$(shasum -a 256 "$tmp_dir/$archive_name" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+  else
+    error "Neither sha256sum nor shasum is available to verify archive checksum. Refusing install."
+  fi
+
+  if [[ "$actual_hash" != "$expected_hash" ]]; then
+    error "Checksum mismatch for $archive_name!
+Expected: $expected_hash
+Actual:   $actual_hash
+Refusing install."
+  fi
+  info "Checksum verified: $actual_hash"
 
   info "Extracting to $INSTALL_DIR..."
   if [[ "$archive_name" == *.zip ]]; then
@@ -532,6 +617,9 @@ See https://github.com/asd-engineering/asd-cli/releases"
     [[ -z "$bin_dir" ]] && error "No bin/ directory found in archive"
     for f in "$bin_dir/"*; do
       [[ -e "$f" ]] || continue
+      # Links in the archive (via -> asd) are names, not binaries: copying
+      # one would install a second full copy. The names are linked below.
+      [[ -L "$f" ]] && continue
       atomic_install_file "$f" "$INSTALL_DIR/$(basename "$f")"
     done
   else
@@ -542,6 +630,9 @@ See https://github.com/asd-engineering/asd-cli/releases"
     [[ -z "$bin_dir" ]] && error "No bin/ directory found in archive"
     for f in "$bin_dir/"*; do
       [[ -e "$f" ]] || continue
+      # Links in the archive (via -> asd) are names, not binaries: copying
+      # one would install a second full copy. The names are linked below.
+      [[ -L "$f" ]] && continue
       atomic_install_file "$f" "$INSTALL_DIR/$(basename "$f")"
     done
 
@@ -550,9 +641,7 @@ See https://github.com/asd-engineering/asd-cli/releases"
     code_server_root=$(find "$tmp_dir" -type d -path "*/code-server/bin" | head -1 | sed 's#/bin$##')
     if [[ -n "$code_server_root" ]]; then
       asd_home_cs=$(get_asd_home)
-      mkdir -p "$asd_home_cs"
-      rm -rf "$asd_home_cs/code-server"
-      cp -Rf "$code_server_root" "$asd_home_cs/code-server"
+      replace_dir "$code_server_root" "$asd_home_cs/code-server"
       chmod +x "$asd_home_cs/code-server/bin/code-server" 2>/dev/null || true
       info "Installed bundled code-server to: $asd_home_cs/code-server"
     fi
@@ -561,12 +650,20 @@ See https://github.com/asd-engineering/asd-cli/releases"
     local asd_bin_dir
     asd_bin_dir="$(get_asd_home)/bin"
     mkdir -p "$asd_bin_dir"
-    for helper_bin in caddy ttyd asd-tunnel; do
+    for helper_bin in caddy ttyd viaalink-relay; do
       if [[ -f "$bin_dir/$helper_bin" ]]; then
         atomic_install_file "$bin_dir/$helper_bin" "$asd_bin_dir/$helper_bin"
         info "Installed $helper_bin to $asd_bin_dir/"
       fi
     done
+
+    # The relay client was called asd-tunnel before v1.35.0. Remove the old
+    # copy once viaalink-relay is in place and runs. Tunnels started from it
+    # keep running until they are restarted.
+    if [[ -f "$asd_bin_dir/asd-tunnel" ]] && "$asd_bin_dir/viaalink-relay" --version >/dev/null 2>&1; then
+      rm -f "$asd_bin_dir/asd-tunnel"
+      info "Removed the old asd-tunnel from $asd_bin_dir/ (running tunnels keep running until restarted)"
+    fi
   fi
 
   # Install assets to global ASD home (must match CLI's getAsdHome() logic)
@@ -582,9 +679,7 @@ See https://github.com/asd-engineering/asd-cli/releases"
   local dashboard_dir
   dashboard_dir=$(find "$tmp_dir" -type d -name "dist" -path "*/dashboard/dist" | head -1)
   if [[ -n "$dashboard_dir" ]]; then
-    mkdir -p "$asd_home/dashboard"
-    rm -rf "$asd_home/dashboard/dist"
-    cp -r "$dashboard_dir" "$asd_home/dashboard/dist"
+    replace_dir "$dashboard_dir" "$asd_home/dashboard/dist"
     info "Dashboard installed to $asd_home/dashboard/dist"
   fi
 
@@ -592,9 +687,7 @@ See https://github.com/asd-engineering/asd-cli/releases"
   local modules_dir
   modules_dir=$(find "$tmp_dir" -type d -name "modules" -maxdepth 3 | head -1)
   if [[ -n "$modules_dir" ]]; then
-    mkdir -p "$asd_home"
-    rm -rf "$asd_home/modules"
-    cp -r "$modules_dir" "$asd_home/modules"
+    replace_dir "$modules_dir" "$asd_home/modules"
     info "Modules installed to $asd_home/modules/"
   fi
 
@@ -613,7 +706,7 @@ See https://github.com/asd-engineering/asd-cli/releases"
   if [[ -f "$INSTALL_DIR/asd" && ! -L "$INSTALL_DIR/asd" ]]; then
     mv -f "$INSTALL_DIR/asd" "$asd_bin_home/asd"
     chmod +x "$asd_bin_home/asd"
-    ln -sf "$asd_bin_home/asd" "$INSTALL_DIR/asd"
+    atomic_symlink "$asd_bin_home/asd" "$INSTALL_DIR/asd"
     # Termux: move runtime files alongside the wrapper (it resolves symlinks to find them)
     for runtime_file in asd-bundle.js asd-node.js; do
       if [[ -f "$INSTALL_DIR/$runtime_file" ]]; then
@@ -622,14 +715,21 @@ See https://github.com/asd-engineering/asd-cli/releases"
     done
   fi
 
-  # Verify installation
+  # `via` is the same program under the product name (ADR 0003): a second
+  # link to the one binary, so `via update` and `asd update` replace both.
   if [[ -x "$INSTALL_DIR/asd" ]]; then
-    info "✅ ASD CLI installed successfully!"
-    info "   Location: $asd_bin_home/asd (symlinked from $INSTALL_DIR/asd)"
-    info "   Version: $("$INSTALL_DIR/asd" --version 2>/dev/null || echo "$version")"
+    atomic_symlink "$(resolve_symlink "$INSTALL_DIR/asd")" "$INSTALL_DIR/via"
+  fi
+
+  # Verify installation
+  if [[ -x "$INSTALL_DIR/asd" && -x "$INSTALL_DIR/via" ]]; then
+    info "✅ Viaalink CLI installed successfully!"
+    info "   Commands: via, asd (both run $asd_bin_home/asd)"
+    info "   Linked from: $INSTALL_DIR/via, $INSTALL_DIR/asd"
+    info "   Version: $("$INSTALL_DIR/via" --version 2>/dev/null || echo "$version")"
     echo ""
     info "To update in the future, run:"
-    echo "   asd update"
+    echo "   via update"
     echo ""
 
     # Check if in PATH.
@@ -638,25 +738,32 @@ See https://github.com/asd-engineering/asd-cli/releases"
     # older `asd` sitting in a directory that comes earlier in PATH (e.g.
     # $PREFIX/bin on Termux, /usr/local/bin elsewhere) keeps resolving and
     # the user silently keeps running the stale binary — including its
-    # broken `asd update`. Compare the RESOLVED target instead.
-    local on_path_asd resolved_installed resolved_on_path
-    on_path_asd="$(command -v asd 2>/dev/null || true)"
-    resolved_installed="$(resolve_symlink "$INSTALL_DIR/asd")"
-    resolved_on_path="$(resolve_symlink "$on_path_asd")"
+    # broken `asd update`. Compare the RESOLVED target instead. `via` is
+    # checked the same way: another program may already use that name.
+    local name on_path resolved_installed resolved_on_path missing_from_path=""
+    for name in via asd; do
+      on_path="$(command -v "$name" 2>/dev/null || true)"
+      resolved_installed="$(resolve_symlink "$INSTALL_DIR/$name")"
+      resolved_on_path="$(resolve_symlink "$on_path")"
 
-    if [[ -n "$on_path_asd" && "$resolved_on_path" != "$resolved_installed" ]]; then
-      warn "Another 'asd' shadows this install and will be used instead:"
-      echo ""
-      echo "    on PATH:   $on_path_asd -> $resolved_on_path"
-      echo "    installed: $INSTALL_DIR/asd -> $resolved_installed"
-      echo ""
-      warn "Point the shadowing entry at this install (recommended):"
-      echo ""
-      echo "  ln -sfn \"$resolved_installed\" \"$on_path_asd\""
-      echo ""
-      warn "...or remove it and put $INSTALL_DIR ahead of it in PATH."
-      echo ""
-    elif [[ -z "$on_path_asd" ]]; then
+      if [[ -n "$on_path" && "$resolved_on_path" != "$resolved_installed" ]]; then
+        warn "Another '$name' shadows this install and will be used instead:"
+        echo ""
+        echo "    on PATH:   $on_path -> $resolved_on_path"
+        echo "    installed: $INSTALL_DIR/$name -> $resolved_installed"
+        echo ""
+        warn "Point the shadowing entry at this install (recommended):"
+        echo ""
+        echo "  ln -sfn \"$resolved_installed\" \"$on_path\""
+        echo ""
+        warn "...or remove it and put $INSTALL_DIR ahead of it in PATH."
+        echo ""
+      elif [[ -z "$on_path" ]]; then
+        missing_from_path=1
+      fi
+    done
+
+    if [[ -n "$missing_from_path" ]]; then
       # Detect shell RC file
       local shell_rc="$HOME/.bashrc"
       case "${SHELL:-}" in

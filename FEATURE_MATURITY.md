@@ -1,8 +1,8 @@
-# ASD CLI Feature Maturity Assessment
+# Viaalink CLI Feature Maturity Assessment
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20 | **Status:** ACTIVE
+**Version:** 2.6.0 | **Last Updated:** 2026-10-22 | **Status:** ACTIVE
 
-This document tracks the maturity level of ASD CLI features, helping users understand what's production-ready versus experimental.
+This document tracks the maturity level of Viaalink CLI features, helping users understand what's production-ready versus experimental.
 
 ---
 
@@ -41,11 +41,11 @@ This document tracks the maturity level of ASD CLI features, helping users under
 | Feature | Status | Notes |
 |---------|--------|-------|
 | `asd expose <port>` | 🟢 | Quick one-command exposure, Caddy + tunnel |
-| `asd login` / `asd login key` | 🟢 | OAuth and API key authentication |
-| `asd auth status/whoami/export` | 🟡 | Credential management and Docker export |
-| `asd init --key` | 🟡 | Import existing SSH key into registry |
+| `asd relay add/list/info/set/rotate-key/remove` | 🟡 | Enrol and manage relays; there is no default relay |
+| `asd login` / `asd logout` / `asd whoami` | 🟢 | viaalink.com account sign-in (device code) |
+| `asd auth export` | 🟡 | Export the active relay key for Docker/CI |
 | `asd net expose start/stop` | 🟢 | Per-service tunnel control |
-| Public tunnels | 🟢 | Subdomain-based URLs via asd-tunnel binary |
+| Public tunnels | 🟢 | Subdomain-based URLs on your relay via the relay client (`asd-tunnel`) |
 | Tunnel modes (caddy/direct) | 🟡 | Mode switching works, limited testing |
 
 ---
@@ -79,23 +79,6 @@ This document tracks the maturity level of ASD CLI features, helping users under
 - Per-service inspection toggles
 
 **Current usage:** Configure your application to use `localhost:8080` as proxy manually.
-
----
-
-## Vault — Secret Management
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| `asd vault set/get/delete` | 🟠 | Core CRUD operations, encrypted at rest (pgsodium) |
-| `asd vault list` | 🟠 | Metadata listing (name, category, scope) |
-| `asd vault import/export` | 🟠 | Bulk directory-based import/export |
-| `asd vault inject` | 🟠 | Template substitution with `asd://` references |
-| `asd vault run` | 🟠 | Process execution with secrets as env vars |
-| Personal/org scopes | 🟠 | Per-user and shared organisation secrets |
-| Web dashboard | 🟠 | View metadata at `/workspace/vault/` |
-| Plan-based quotas | 🟠 | Free: 0, Developer: 10, Pro: 50, Scale: 200 |
-
-> **Alpha:** Ready for testing. Requires `asd login` for authentication. API and CLI flags may change between releases.
 
 ---
 
@@ -194,8 +177,8 @@ Features progress through maturity levels as they gain:
 ### v1.8.0 (2026-03-06)
 
 - Added Docker Containers section with sandbox and tunnel features (🟢 Stable)
-- ASD Sandbox: interactive menu, autostart, expose-on-startup, tmux session management
-- ASD Tunnel: lightweight scratch container (~20 MB) for CI/CD automation
+- Sandbox container: interactive menu, autostart, expose-on-startup, tmux session management
+- Tunnel container: lightweight scratch container (~20 MB) for CI/CD automation
 - New user documentation: [um_docker.md](./um_docker.md)
 
 ### v1.7.0 (2026-02-25)

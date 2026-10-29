@@ -1,10 +1,12 @@
-# ASD CLI User Manual
+# Viaalink CLI User Manual
 
-**Version:** 2.6.0 | **Last Updated:** 2026-04-20
+**Version:** 2.6.0 | **Last Updated:** 2026-10-22
 
 Share local services over HTTPS with anyone, anywhere. No port forwarding, no firewall rules, no certificates to manage.
 
-For the list of changes in each release, see [CHANGELOG.md](../CHANGELOG.md) (authoritative, [Keep a Changelog] format). GitHub release pages on [`.asd`](https://github.com/asd-engineering/.asd/releases) and [`asd-cli`](https://github.com/asd-engineering/asd-cli/releases) mirror the relevant section per release.
+Viaalink CLI publishes your local services through **Viaalink Relay**, the server that gives them public HTTPS URLs. The command is `via`. `via` and `asd` are the same command; older scripts that call `asd` keep working.
+
+For the list of changes in each release, see [CHANGELOG.md](../CHANGELOG.md) (authoritative, [Keep a Changelog] format). The [GitHub release pages](https://github.com/viaalink/cli/releases) mirror the relevant section per release.
 
 [Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
 
@@ -23,23 +25,24 @@ For the list of changes in each release, see [CHANGELOG.md](../CHANGELOG.md) (au
 9. [Troubleshooting](#9-troubleshooting)
 10. [Reference Links](#10-reference-links)
 11. [Tunnel Protocols](#11-tunnel-protocols)
-12. [Plugins & Extensibility](#12-plugins--extensibility)
+12. [Supabase Integration](#12-supabase-integration)
 13. [Resources & Community](#13-resources--community)
-14. [Vault — Secret Management](#14-vault--secret-management)
-15. [Docker Containers](#15-docker-containers)
+14. [Docker Containers](#14-docker-containers)
+
+[Quick Reference Card](#quick-reference-card)
 
 ---
 
 ## 1. Welcome
 
-### What ASD Does
+### What Viaalink CLI Does
 
-ASD CLI creates secure HTTPS tunnels from your local machine to the internet. With one command, you can:
+Viaalink CLI creates secure HTTPS tunnels from your local machine to the internet, through a Viaalink Relay you enrol this device on. With one command, you can:
 
 - Share a local development server with a teammate
 - Receive webhook callbacks from external APIs (payment providers, CI/CD pipelines, etc.)
 - Access your terminal or VS Code from any browser
-- Monitor all services from a built-in dashboard (`asd net`)
+- Monitor all services from a built-in dashboard (`via net`)
 - Demo your work without deploying
 
 ### Who It's For
@@ -59,7 +62,7 @@ This manual teaches you how to:
 
 ### OS & Platform Support
 
-ASD CLI is cross-platform. For detailed feature status, see [FEATURE_MATURITY.md](./FEATURE_MATURITY.md).
+Viaalink CLI is cross-platform. For detailed feature status, see [FEATURE_MATURITY.md](./FEATURE_MATURITY.md).
 
 **Quick Status:**
 - **Linux** - Primary platform, extensively tested
@@ -71,7 +74,7 @@ ASD CLI is cross-platform. For detailed feature status, see [FEATURE_MATURITY.md
 
 ### What is Tunneling?
 
-ASD creates secure tunnels from your local machine to the internet.
+The CLI creates secure tunnels from your local machine to a relay, which serves them on the internet.
 
 **HTTP Tunneling** (default):
 - Web apps, REST APIs, WebSockets
@@ -81,8 +84,8 @@ ASD creates secure tunnels from your local machine to the internet.
 **TCP Tunneling** (via direct SSH):
 - Databases (PostgreSQL, MySQL, Redis)
 - SSH servers, custom protocols
-- Use direct SSH: `ssh -p 2223 -R 5432:localhost:5432 user@tunnel.asd.sh`
-- Note: `asd expose` is HTTP-only; TCP requires direct SSH commands
+- Use direct SSH to your relay: `ssh -p <ssh-port> -R 5432:localhost:5432 <client-id>@relay.example.com`
+- Note: `via expose` is HTTP-only; TCP requires direct SSH commands
 
 **Key Use Cases:**
 - Share localhost with teammates in 30 seconds
@@ -101,35 +104,51 @@ Get a public URL in seconds.
 **Linux / macOS:**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
-```
-
-**Windows CMD (recommended):**
-
-```cmd
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.cmd -o %TEMP%\install.cmd && %TEMP%\install.cmd
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 ```
 
 **Windows PowerShell:**
 
-> **Note:** The `irm | iex` pattern may be blocked by Windows Defender (AMSI). If so, use the CMD method above.
+> **Note:** The `irm | iex` pattern may be blocked by Windows Defender (AMSI). If so, use the CMD method below.
 
 ```powershell
-irm https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/viaalink/cli/main/install.ps1 | iex
+```
+
+**Windows CMD:**
+
+```cmd
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.cmd -o %TEMP%\install.cmd && %TEMP%\install.cmd
 ```
 
 **Self-update** (all platforms):
 
 ```bash
-asd update
+via update
 ```
 
+Releases: https://github.com/viaalink/cli/releases
+
 > **Windows notes:**
-> - Binary installs to `%LOCALAPPDATA%\asd\bin\asd.exe`. Add to PATH if prompted.
+> - Binary installs to `%LOCALAPPDATA%\asd\bin\` (`via.exe` and `asd.exe`). Add to PATH if prompted.
 > - For the best experience, use [Git Bash](https://git-scm.com/download/win) (recommended), Windows Terminal + PowerShell, or CMD.exe.
 > - If you skip the PATH prompt, run directly: `%LOCALAPPDATA%\asd\bin\asd --version`
 
-### Step 2: Start Your Local Server
+### Step 2: Enrol on a Relay
+
+There is no default relay: before anything can be published, enrol this device on one. The relay's dashboard gives you an enrolment link; quote it so your shell passes it through unchanged:
+
+```bash
+via relay add '<enrolment link>'
+```
+
+This creates a device key, registers it with the relay and makes the relay your default. Running your own relay? Add it directly:
+
+```bash
+via relay add <name> --host <host> --key <path> [--port <port>] [--domain <domain>]
+```
+
+### Step 3: Start Your Local Server
 
 Run any local server. Example with Python:
 
@@ -143,10 +162,10 @@ Or Node.js:
 npx serve -p 3000
 ```
 
-### Step 3: Expose It
+### Step 4: Expose It
 
 ```bash
-asd expose 3000
+via expose 3000
 ```
 
 You'll see output like:
@@ -154,29 +173,14 @@ You'll see output like:
 ```
 Local:  http://localhost:3000
 Caddy:  http://app.localhost
-Tunnel: https://app-abc123.cicd.eu1.asd.engineer
+Tunnel: https://app-x7k9m2.relay.example.com
 ```
 
 **That's it!** Share the tunnel URL with anyone. It's HTTPS, secure, and works from anywhere.
 
-### First-Time Setup
+### Your viaalink.com Account
 
-Before using tunnels, you need credentials. Choose one:
-
-**Quick testing (no account):**
-```bash
-# Get 5-minute ephemeral credentials
-curl -X POST https://asd.engineer/functions/v1/create-ephemeral-token
-# Use the returned tunnel_client_id and tunnel_client_secret
-```
-
-**For longer sessions:** Create tunnel credentials at [asd.host](https://asd.host) → Account → Tunnel Tokens, then set in `.env`:
-```bash
-ASD_TUNNEL_TOKEN=your-token
-ASD_TUNNEL_USER=your-user
-```
-
-> **Note:** CLI-based login (`asd login`) is coming in the next release.
+`via login` signs this device in to your viaalink.com account (it opens a device-code link; `--no-browser` only prints it). `via whoami` shows the account and its licenses, `via logout` signs out. Login is separate from relay enrolment: it does not create relay credentials, and `via relay add` does not need it.
 
 ---
 
@@ -184,15 +188,15 @@ ASD_TUNNEL_USER=your-user
 
 ### How It Works
 
-When you run `asd expose 3000`, here's what happens:
+When you run `via expose 3000`, here's what happens:
 
 ```mermaid
 flowchart LR
     subgraph Your Computer
         A[localhost:3000]
     end
-    subgraph ASD Cloud
-        B[asd.engineer<br/>HTTPS + auto-cert]
+    subgraph Viaalink Relay
+        B[relay.example.com<br/>HTTPS + auto-cert]
     end
     subgraph Anyone
         C[User Browser]
@@ -201,23 +205,32 @@ flowchart LR
     C -->|HTTPS| B
 ```
 
-1. ASD creates an SSH tunnel from your machine to the ASD cloud
-2. ASD cloud provides a public HTTPS URL with automatic certificates
+1. The CLI opens an SSH tunnel from your machine to the relay you enrolled on
+2. The relay provides a public HTTPS URL with automatic certificates
 3. Anyone with the URL can access your local service securely
 
 ### Tunnel URL Format
 
-Your tunnel URL looks like:
+Your tunnel URL depends on the relay. On a relay shared by several devices, the relay appends this device's client id:
 
 ```
-https://<prefix>-<client-id>.<region>.asd.engineer
-        ^^^^^^^  ^^^^^^^^^^  ^^^^^^
-           |          |         |
-      Your name   Unique ID   Server location
+https://<prefix>-<client-id>.<relay-domain>
+        ^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^^^
+           |          |              |
+      Your name   Unique ID    The relay's domain
        (optional)
 ```
 
-Example: `https://myapp-x7k9m2.cicd.eu1.asd.engineer`
+Example: `https://myapp-x7k9m2.relay.example.com`
+
+On your own (dedicated) relay nothing is appended: `https://myapp.relay.example.com`.
+
+To publish through a different relay or domain for one command, pass `--server <relay-name>` or `--domain <host>`:
+
+```bash
+via expose 3000 --server <relay-name>
+via expose 3000 --domain <host>
+```
 
 ### What You Get Automatically
 
@@ -228,9 +241,7 @@ Example: `https://myapp-x7k9m2.cicd.eu1.asd.engineer`
 
 ### Tunnel Lifetime
 
-Tunnel duration varies by plan. Tunnels auto-reconnect if connection drops.
-
-See [asd.host/pricing](https://asd.host/pricing) for current plan details.
+Tunnels stay up while the CLI's relay client (`asd-tunnel`) runs, and auto-reconnect if the connection drops. Any limits are set by the relay you use.
 
 ---
 
@@ -240,64 +251,66 @@ Choose the method that fits your workflow:
 
 | Need | Method | Complexity |
 |------|--------|------------|
-| Share something RIGHT NOW | `asd expose` | Simplest |
+| Share something RIGHT NOW | `via expose` | Simplest |
 | Daily development workflow | `asd.yaml` config | Medium |
-| CI/CD automation | Tunnel tokens | Advanced |
+| CI/CD and containers | Relay key via `via auth export` | Advanced |
 
-### Method 1: Quick Expose (`asd expose`)
+All three publish through a relay, so enrol one first (`via relay add '<enrolment link>'`, see [Quick Start](#step-2-enrol-on-a-relay)).
+
+### Method 1: Quick Expose (`via expose`)
 
 The fastest way to share a local port.
 
 **Basic usage:**
 
 ```bash
-asd expose 3000
+via expose 3000
 ```
 
 **With a custom name:**
 
 ```bash
-asd expose 3000 --name myapp
-# Result: https://myapp-abc123.cicd.eu1.asd.engineer
+via expose 3000 --name myapp
+# Result: https://myapp-x7k9m2.relay.example.com
 ```
 
-The `--name` sets a prefix. The URL is always `<name>-<client-id>.cicd.eu1.asd.engineer`.
+The `--name` sets a prefix. On a shared relay the URL is `<name>-<client-id>.<relay-domain>`; on your own relay it is `<name>.<relay-domain>`.
 
-**Direct tunnel (skip Caddy):**
+**Pick the relay or domain:**
 
 ```bash
-asd expose 3000 myapp --direct
-# Creates tunnel directly without local Caddy proxy
+via expose 3000 --server <relay-name>   # Publish through a named relay
+via expose 3000 --domain <host>         # ...under one of its other domains
 ```
 
-Use `--direct` when you only need the public tunnel URL and don't need local routing through Caddy.
+**Local only (no tunnel):**
+
+```bash
+via expose 3000 --local-only
+```
 
 **Managing exposed services:**
 
 ```bash
-asd expose list           # List all exposed services (shows tunnel URLs!)
-asd expose stop myapp     # Stop by name
-asd expose stop 3000      # Stop by port
+via expose list           # List all exposed services (shows tunnel URLs!)
+via expose stop myapp     # Stop by name
+via expose stop 3000      # Stop by port
 ```
 
-**Example `asd expose list` output:**
+**Example `via expose list` output:**
 
 ```
 myapp
     Port:     3000
     Local:    http://myapp.localhost
-    Tunnel:   https://myapp-abc123.cicd.eu1.asd.engineer
+    Tunnel:   https://myapp-x7k9m2.relay.example.com
     Status:   ✅ Online
     Uptime:   🕐 2h 15m
 ```
 
 **Interactive prompts:**
 
-When running in a terminal, `asd expose` will interactively prompt you if:
-- The tunnel binary needs to be installed
-- You need to login to create tunnels
-
-This makes first-time setup seamless without pre-configuration.
+When running in a terminal, `via expose` prompts you for the port if you leave it out, and offers to install the relay client (`asd-tunnel`) if it is missing. If this device is not enrolled on a relay yet, enrol it with `via relay add '<enrolment link>'`.
 
 **When to use:** Quick demos, one-off sharing, testing webhooks.
 
@@ -309,7 +322,7 @@ For ongoing development, define services in your project.
 
 ```bash
 cd your-project
-asd init                  # Creates asd.yaml and workspace
+via init                  # Creates asd.yaml and workspace
 ```
 
 **Edit `asd.yaml`:**
@@ -350,21 +363,21 @@ network:
         AUTH_CALLBACK_URL: "${{ macro.exposedOrigin() }}/auth/callback"
 ```
 
-After `asd net apply`, `.env` will contain:
+After `via net apply`, `.env` will contain:
 ```bash
-PUBLIC_URL=https://frontend-abc123.cicd.eu1.asd.engineer
-AUTH_CALLBACK_URL=https://frontend-abc123.cicd.eu1.asd.engineer/auth/callback
+PUBLIC_URL=https://frontend-x7k9m2.relay.example.com
+AUTH_CALLBACK_URL=https://frontend-x7k9m2.relay.example.com/auth/callback
 ```
 
-The parameterless `exposedOrigin()` reads the subdomain from the same service definition. Values support all template macros: `${{ env.* }}` for env vars, `${{ macro.* }}` for dynamic values. If tunnel credentials aren't available yet, the env var is simply skipped (not written as empty).
+The parameterless `exposedOrigin()` reads the subdomain from the same service definition. Values support all template macros: `${{ env.* }}` for env vars, `${{ macro.* }}` for dynamic values. If this device isn't enrolled on a relay yet, the env var is simply skipped (not written as empty).
 
 See [Template Macros Reference](./um_asd_yaml.md#template-macros-reference) for the full list of available macros including port allocation, random strings, bcrypt hashing, and more.
 
 **Apply and start:**
 
 ```bash
-asd net apply --caddy --tunnel
-asd net                   # Open TUI dashboard
+via net apply --caddy --tunnel
+via net                   # Open TUI dashboard
 ```
 
 **TUI Controls:**
@@ -378,6 +391,12 @@ asd net                   # Open TUI dashboard
 | Arrow keys | Navigate services |
 
 **When to use:** Daily development, team projects, multiple services.
+
+### Method 3: CI/CD and Containers
+
+A pipeline or container uses the key of a device you enrolled on a relay. `via auth export` prints it as environment variables, or you mount `~/.config/asd/tunnel` into the container. See [Level 3: Relay Credentials](#level-3-relay-credentials) for both options.
+
+**When to use:** CI/CD pipelines, Docker containers, automation.
 
 ---
 
@@ -405,7 +424,7 @@ ASD_TTYD_PASSWORD=your-secure-password
 **2. Start the terminal:**
 
 ```bash
-asd terminal start
+via terminal start
 ```
 
 **3. Access it:**
@@ -414,17 +433,17 @@ asd terminal start
 |--------|-----|
 | Local Direct | `http://localhost:<port>/` |
 | Via Caddy | `http://asd.localhost/asde/terminal/` |
-| Via Tunnel | `https://xxx.cicd.eu1.asd.engineer/asde/terminal/` |
+| Via Tunnel | `https://hub-x7k9m2.relay.example.com/asde/terminal/` |
 
 **4. Stop when done:**
 
 ```bash
-asd terminal stop
+via terminal stop
 ```
 
 ### Three Ways to Access
 
-After starting, `asd terminal` shows you a menu with all access URLs:
+After starting, `via terminal` shows you a menu with all access URLs:
 
 ```
 Terminal (ttyd) - Web Terminal Access
@@ -434,7 +453,7 @@ Status: Running on port 7681
 Access URLs:
   Local:  http://admin:***@localhost:7681/
   Caddy:  http://asd.localhost/asde/terminal/
-  Tunnel: https://hub-abc123.cicd.eu1.asd.engineer/asde/terminal/
+  Tunnel: https://hub-x7k9m2.relay.example.com/asde/terminal/
 
 Actions:
   [1] Open in browser
@@ -476,14 +495,14 @@ To access your terminal from anywhere:
 **1. Start terminal and tunnel:**
 
 ```bash
-asd terminal start
-asd net apply --tunnel
+via terminal start
+via net apply --tunnel
 ```
 
 **2. Get the tunnel URL:**
 
 ```bash
-asd terminal
+via terminal
 # Shows tunnel URL in the menu
 ```
 
@@ -496,7 +515,7 @@ asd terminal
 - **Always use strong passwords** - At least 12 characters, mixed case/numbers
 - **Don't share credentials** - Give each user their own account if possible
 - **Use tunnels carefully** - Anyone with the URL + password has shell access
-- **Stop when not needed** - `asd terminal stop`
+- **Stop when not needed** - `via terminal stop`
 
 When project-level authentication is enabled, ttyd automatically gets protected.
 
@@ -513,7 +532,7 @@ ASD_TTYD_PASSWORD=your-password
 **"Port already in use":**
 
 ```bash
-asd terminal stop
+via terminal stop
 # Or manually: kill the process using the port
 lsof -i :7681 | grep ttyd
 kill <pid>
@@ -523,14 +542,14 @@ kill <pid>
 
 ```bash
 # Ensure tunnel is active:
-asd net                   # Check hub service has tunnel URL
-asd net apply --tunnel    # Re-apply if needed
+via net                   # Check hub service has tunnel URL
+via net apply --tunnel    # Re-apply if needed
 ```
 
 **"Binary not found":**
 
 ```bash
-asd init                  # Re-downloads binaries
+via init                  # Re-downloads binaries
 ```
 
 ---
@@ -559,7 +578,7 @@ code-server runs VS Code in a browser. Get the full VS Code experience from any 
 **Windows Users:** code-server does not provide native Windows builds. To use code-server on Windows:
 
 1. **Recommended:** Install [WSL2](https://docs.microsoft.com/en-us/windows/wsl/install) with Ubuntu
-2. Run ASD CLI inside WSL: `asd code start`
+2. Run Viaalink CLI inside WSL: `via code start`
 3. Access from your Windows browser at the provided URL
 
 We are actively exploring alternatives for native Windows support. Options under consideration include:
@@ -572,7 +591,7 @@ We are actively exploring alternatives for native Windows support. Options under
 **1. Start code-server:**
 
 ```bash
-asd code start
+via code start
 ```
 
 **2. Access it:**
@@ -581,17 +600,17 @@ asd code start
 |--------|-----|
 | Local Direct | `http://localhost:<port>/` |
 | Via Caddy | `http://asd.localhost/asde/codeserver/` |
-| Via Tunnel | `https://xxx.cicd.eu1.asd.engineer/asde/codeserver/` |
+| Via Tunnel | `https://hub-x7k9m2.relay.example.com/asde/codeserver/` |
 
 **3. Stop when done:**
 
 ```bash
-asd code stop
+via code stop
 ```
 
 ### Three Ways to Access
 
-Same pattern as ttyd. Run `asd code` for the interactive menu:
+Same pattern as ttyd. Run `via code` for the interactive menu:
 
 ```
 VS Code Server - Browser-based IDE
@@ -601,7 +620,7 @@ Status: Running on port 8080
 Access URLs:
   Local:  http://localhost:8080/
   Caddy:  http://asd.localhost/asde/codeserver/
-  Tunnel: https://hub-abc123.cicd.eu1.asd.engineer/asde/codeserver/
+  Tunnel: https://hub-x7k9m2.relay.example.com/asde/codeserver/
 
 Actions:
   [1] Open in browser
@@ -647,14 +666,14 @@ ASD_CODESERVER_PASSWORD=your-secure-password
 **2. Start code-server and tunnel:**
 
 ```bash
-asd code start
-asd net apply --tunnel
+via code start
+via net apply --tunnel
 ```
 
 **3. Get the tunnel URL:**
 
 ```bash
-asd code
+via code
 # Shows tunnel URL in menu
 ```
 
@@ -675,7 +694,7 @@ code-server provides the full VS Code experience:
 - **Use password auth for remote access** - Set `ASD_CODESERVER_AUTH=password`
 - **Strong passwords** - At least 12 characters
 - **Project-level auth** - Enable `basic_auth` in `asd.yaml` for extra protection
-- **Stop when not needed** - `asd code stop`
+- **Stop when not needed** - `via code stop`
 
 ### Authentication Layers
 
@@ -711,7 +730,7 @@ code-server uses Open VSX, not the Microsoft marketplace. Most popular extension
 **"Port conflict":**
 
 ```bash
-asd code stop
+via code stop
 # Or kill manually:
 lsof -i :8080 | grep code-server
 kill <pid>
@@ -740,13 +759,13 @@ Protect your services from unauthorized access.
 
 ### Security Levels
 
-ASD provides three levels of security:
+Viaalink CLI provides three levels of security:
 
 | Level | Who Can Access | When to Use |
 |-------|----------------|-------------|
 | **No Auth** | Anyone with URL | Local development, testing |
 | **Basic Password** | Anyone with URL + password | Remote access, demos |
-| **Tunnel Tokens** | Authenticated users | CI/CD, automation |
+| **Relay Credentials** | Devices enrolled on your relay | CI/CD, automation |
 
 ```mermaid
 flowchart LR
@@ -756,8 +775,8 @@ flowchart LR
     subgraph "Level 2: Basic Auth"
         A2[URL + Password]
     end
-    subgraph "Level 3: Tunnel Tokens"
-        A3[Authenticated Users]
+    subgraph "Level 3: Relay Credentials"
+        A3[Enrolled Devices]
     end
     A1 --> Local[Local Dev]
     A2 --> Remote[Remote Access]
@@ -769,8 +788,8 @@ flowchart LR
 When you expose without service auth:
 
 ```bash
-asd expose 3000
-# → https://myapp-abc123.cicd.eu1.asd.engineer
+via expose 3000
+# → https://myapp-x7k9m2.relay.example.com
 ```
 
 Your **local** service on localhost:3000 becomes accessible via a **public HTTPS URL**.
@@ -864,57 +883,49 @@ ASD_CODESERVER_AUTH=password
 ASD_CODESERVER_PASSWORD=your-code-password
 ```
 
-### Level 3: CLI Login & Tunnel Credentials
+### Level 3: Relay Credentials
 
-ASD provides multiple authentication methods for tunnel access. Choose based on your environment:
+A device publishes through a relay with its own device key. Choose how that key gets to where the tunnel runs:
 
-| Method | Best For | Account Required |
+| Method | Best For | viaalink.com account required |
 |--------|----------|-----------------|
-| `asd login` | Interactive (laptop, desktop) | Yes |
-| `asd login key` | CI/CD, headless servers | Yes (API key) |
-| SSH key import | Docker, new machines | No (existing key) |
-| Ephemeral token | Quick testing (5 min) | No |
-| Tunnel token | Dashboard-created token | Yes |
+| `via relay add '<enrolment link>'` | Any device you enrol on a relay | No |
+| SSH key in Docker | Docker, CI | No (an enrolled key) |
 
-#### Method 1: Interactive Login (`asd login`)
+#### Method 1: Enrol on a relay (`via relay add`)
 
-The simplest way to authenticate. Opens a browser for OAuth:
+The relay's dashboard gives you an enrolment link. Enrolling generates a device
+key, registers it with the relay and makes the relay this device's default:
 
 ```bash
-asd login
-# Opens browser → sign in → credentials saved automatically
+via relay add 'https://relay.example.com/_relay/enroll#t=…'
+via relay list      # See the relays this device is enrolled on
 ```
 
-After login, all tunnel commands (`asd expose`, `asd net apply --tunnel`) work automatically.
+After that, `via expose` and `via net apply --tunnel` publish through it.
+
+Managing relays:
 
 ```bash
-asd auth status     # Check if logged in
-asd auth whoami     # Show current user info
-asd logout          # Sign out
+via relay info <name>        # Details of one relay
+via relay set <name>         # Make it the default relay
+via relay rotate-key [name]  # Replace this device's key on its relay
+via relay remove <name>      # Sign the device out of the relay, then remove it locally
 ```
 
-#### Method 2: API Key Login (`asd login key`)
-
-For headless environments (CI/CD, servers) where no browser is available:
+For a self-hosted or private relay, add it with its SSH key instead of a link:
 
 ```bash
-# Pass key directly
-asd login key sk_your_api_key_here
-
-# Or via environment variable
-export ASD_API_KEY=sk_your_api_key_here
-asd login key
-
-# Interactive prompt (when running in a terminal)
-asd login key
-# Enter API key: _
+via relay add <name> --host <host> --key <path> [--port <port>] [--domain <domain>]
 ```
 
-Get your API key from [asd.host](https://asd.host) → Account → API Keys.
+`via login` is separate: it signs this device in to your viaalink.com account
+(`via whoami` shows it, `via logout` signs out) and does not create relay
+credentials.
 
-#### Method 3: SSH Key in Docker & Containers
+#### Method 2: SSH Key in Docker & Containers
 
-Three ways to use your SSH key credentials inside Docker containers:
+Two ways to use your SSH key credentials inside Docker containers:
 
 **Option A: Volume mount (simplest)**
 
@@ -922,10 +933,10 @@ Mount your credential directory into the container:
 
 ```bash
 docker run -v ~/.config/asd/tunnel:/root/.config/asd/tunnel:ro my-image
-# Inside container: asd expose 3000  ← just works
+# Inside container: via expose 3000  ← just works
 ```
 
-ASD automatically resolves key paths even when the host path differs from the container path.
+The CLI automatically resolves key paths even when the host path differs from the container path.
 
 **Option B: Environment variables**
 
@@ -933,60 +944,23 @@ Pass SSH key content as env vars — no file mounting needed:
 
 ```bash
 # Export credentials (convenience command)
-eval $(asd auth export)
+eval $(via auth export)
 
 # Or with Docker flags
 docker run \
-  $(asd auth export --docker) \
-  my-image asd expose 3000
+  $(via auth export --docker) \
+  my-image via expose 3000
 ```
 
-The `asd auth export` command outputs:
+The `via auth export` command outputs:
 ```bash
 export ASD_TUNNEL_KEY="<base64-encoded-private-key>"
-export ASD_TUNNEL_KEY_ID="<key-uuid>"
-export ASD_TUNNEL_HOST="tunnel.asd.sh"
+export ASD_TUNNEL_KEY_ID="<key-id>"
+export ASD_TUNNEL_HOST="relay.example.com"
 export ASD_TUNNEL_PORT="2222"
 ```
 
 Use `--docker` for Docker `-e` flag format instead of shell exports.
-
-**Option C: Import existing key**
-
-If you have a copy of your SSH key file (e.g., copied to a server):
-
-```bash
-# Auto-detect key_id from server (requires network)
-asd init --key /path/to/private_key
-
-# Or specify key_id explicitly (works offline)
-asd init --key /path/to/private_key --key-id abc-123-def
-```
-
-#### Method 4: Ephemeral Token (Quick Testing)
-
-No account needed. Get 5-minute credentials instantly:
-
-```bash
-curl -X POST https://asd.engineer/functions/v1/create-ephemeral-token
-
-# Response includes:
-# - tunnel_client_id: "guest-xyz123"
-# - tunnel_client_secret: "abc123..."
-# - expires_at: 5 minutes from now
-```
-
-#### Method 5: Tunnel Token (Dashboard)
-
-1. Sign up at [asd.host](https://asd.host)
-2. Go to Account → Tunnel Tokens → Create
-3. Set credentials in `.env` or CI secrets:
-
-```bash
-ASD_TUNNEL_TOKEN=your-token-from-dashboard
-ASD_TUNNEL_USER=your-user-id
-asd expose 3000
-```
 
 ### Choosing the Right Level
 
@@ -996,9 +970,9 @@ asd expose 3000
 | Quick demo (< 1 hour) | No auth (URL is secret enough) |
 | Remote access to your machine | Basic password |
 | Sharing with teammates | Basic password |
-| CI/CD pipelines | `asd login key` or SSH key env vars |
-| Docker containers | Volume mount or `asd auth export` |
-| Production | Don't use ASD tunnels! |
+| CI/CD pipelines | SSH key env vars (`via auth export`) |
+| Docker containers | Volume mount or `via auth export` |
+| Production | Don't use development tunnels! |
 
 ### Password Best Practices
 
@@ -1020,14 +994,14 @@ openssl rand -base64 24
 
 ## 8. Access Patterns
 
-Every ASD service can be accessed three ways.
+Every service can be accessed three ways.
 
 ### Caddy as Security Layer
 
-ASD uses Caddy as a local reverse proxy **between** the tunnel and your services:
+Viaalink CLI uses Caddy as a local reverse proxy **between** the tunnel and your services:
 
 ```
-Internet → ASD Cloud → SSH Tunnel → Caddy (local) → Your Service
+Internet → Viaalink Relay → SSH Tunnel → Caddy (local) → Your Service
                                        ↑
                                   Security layer
 ```
@@ -1046,7 +1020,7 @@ network:
       enabled: true
 ```
 
-**ASD Caddy Client:** ASD includes npm tooling for Caddy API configuration.
+**Caddy API client:** the CLI includes npm tooling for Caddy API configuration.
 
 ### Future Authentication (Roadmap)
 
@@ -1055,7 +1029,7 @@ These are planned but **not yet implemented**:
 - ⏳ JWT validation at edge
 - ⏳ LDAP / Active Directory
 - ⏳ 2FA / MFA enforcement
-- ⏳ Edge authentication (ASD Cloud level)
+- ⏳ Edge authentication (relay level)
 
 For current options, see [BASIC_AUTH.md](./BASIC_AUTH.md).
 
@@ -1065,7 +1039,7 @@ For current options, see [BASIC_AUTH.md](./BASIC_AUTH.md).
 |---------|-------------|----------|
 | **Local Direct** | `http://localhost:3000` | Same machine |
 | **Caddy Route** | `http://asd.localhost/myapp/` | Local network, LAN |
-| **Tunnel Remote** | `https://myapp-abc123.cicd.eu1.asd.engineer/` | Anywhere |
+| **Tunnel Remote** | `https://myapp-x7k9m2.relay.example.com/` | Anywhere |
 
 ```mermaid
 flowchart TB
@@ -1073,12 +1047,12 @@ flowchart TB
         direction TB
         L[Local Direct<br/>localhost:3000]
         C[Caddy Route<br/>app.localhost]
-        T[Tunnel Remote<br/>app-xxx.asd.engineer]
+        T[Tunnel Remote<br/>app-x7k9m2.relay.example.com]
     end
 
     L --> App[Your App]
     C --> Caddy[Caddy :80] --> App
-    T --> Cloud[ASD Cloud] --> Tunnel[SSH Tunnel] --> Caddy
+    T --> Cloud[Viaalink Relay] --> Tunnel[SSH Tunnel] --> Caddy
 ```
 
 ### Pattern 1: Local Direct
@@ -1140,10 +1114,10 @@ Browser --> Caddy (:80) --> localhost:3000 --> Your App
 Access through the public HTTPS tunnel.
 
 ```
-https://<prefix>-<id>.cicd.eu1.asd.engineer/
+https://<prefix>-<id>.<relay-domain>/
 ```
 
-Example: `https://myapp-abc123.cicd.eu1.asd.engineer/`
+Example: `https://myapp-x7k9m2.relay.example.com/` (on your own relay: `https://myapp.relay.example.com/`)
 
 **When to use:**
 - Remote access from anywhere
@@ -1153,15 +1127,15 @@ Example: `https://myapp-abc123.cicd.eu1.asd.engineer/`
 
 **How it works:**
 ```
-Browser --> ASD Cloud --> SSH Tunnel --> Caddy --> Your App
-                         (encrypted)
+Browser --> Relay --> SSH Tunnel --> Caddy --> Your App
+                     (encrypted)
 ```
 
 ### Built-in Service URLs
 
 | Service | Local | Caddy | Tunnel |
 |---------|-------|-------|--------|
-| Your app | `http://localhost:3000` | `http://myapp.localhost` | `https://myapp-xxx.cicd.eu1.asd.engineer` |
+| Your app | `http://localhost:3000` | `http://myapp.localhost` | `https://myapp-x7k9m2.relay.example.com` |
 | terminal | `http://localhost:7681` | `http://asd.localhost/asde/terminal/` | `https://hub-xxx.../asde/terminal/` |
 | codeserver | `http://localhost:8080` | `http://asd.localhost/asde/codeserver/` | `https://hub-xxx.../asde/codeserver/` |
 
@@ -1170,22 +1144,22 @@ Browser --> ASD Cloud --> SSH Tunnel --> Caddy --> Your App
 **For quick expose:**
 
 ```bash
-asd expose 3000
+via expose 3000
 # Output shows all URLs
 ```
 
 **For project services:**
 
 ```bash
-asd net
+via net
 # TUI shows all service URLs
 ```
 
 **For built-in services:**
 
 ```bash
-asd terminal    # Shows ttyd URLs
-asd code        # Shows codeserver URLs
+via terminal    # Shows ttyd URLs
+via code        # Shows codeserver URLs
 ```
 
 ---
@@ -1195,13 +1169,13 @@ asd code        # Shows codeserver URLs
 ### Common Issues
 
 <details>
-<summary><strong>Command not found: asd</strong></summary>
+<summary><strong>Command not found: via</strong></summary>
 
 The CLI isn't installed or not in PATH.
 
 ```bash
 # Reinstall
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 
 # Or check PATH
 echo $PATH
@@ -1231,7 +1205,7 @@ Restart your terminal after adding to PATH.
 <details>
 <summary><strong>Windows: Antivirus flags asd as suspicious</strong></summary>
 
-ASD's binary installer downloads and manages tool binaries (Caddy, ttyd, GitHub CLI, etc.) on your behalf. This involves operations that antivirus heuristics sometimes flag:
+The CLI's binary installer downloads and manages tool binaries (Caddy, ttyd, GitHub CLI, etc.) on your behalf. This involves operations that antivirus heuristics sometimes flag:
 
 - Downloading executables from the internet
 - Extracting zip archives via PowerShell
@@ -1260,7 +1234,7 @@ ASD's binary installer downloads and manages tool binaries (Caddy, ttyd, GitHub 
 <details>
 <summary><strong>Windows: Post-installation details</strong></summary>
 
-See [Quick Start > Step 1: Install](#step-1-install) for all install commands (PowerShell, CMD, Linux/macOS).
+See [Quick Start > Step 1: Install](#step-1-install) for all install commands (PowerShell, Linux/macOS).
 
 **After installation:**
 
@@ -1284,7 +1258,7 @@ lsof -i :3000
 kill <pid>
 
 # Or use a different port
-asd expose 3001
+via expose 3001
 ```
 </details>
 
@@ -1294,14 +1268,18 @@ asd expose 3001
 Authentication or network issues.
 
 ```bash
-# Check auth status
-asd auth status
+# Check which relays this device is enrolled on (and the default)
+via relay list
+via relay info <name>
 
-# Re-login
-asd login
+# Diagnose the connection
+via diagnose
+
+# Not enrolled on a relay yet?
+via relay add '<enrolment link>'
 
 # Reset tunnels
-asd net expose reset
+via net expose reset
 ```
 </details>
 
@@ -1312,11 +1290,11 @@ Registry out of sync.
 
 ```bash
 # Refresh services
-asd net refresh
+via net refresh
 
 # Or full reset
 rm .asd/workspace/network/registry.json
-asd net apply
+via net apply
 ```
 </details>
 
@@ -1327,12 +1305,12 @@ Caddy configuration issue.
 
 ```bash
 # Stop and remove state
-asd caddy stop
+via caddy stop
 rm -rf .asd/workspace/caddy/
 
 # Restart
-asd caddy start
-asd net apply
+via caddy start
+via net apply
 ```
 </details>
 
@@ -1350,8 +1328,8 @@ pkill -f "asd-tunnel"
 rm -rf .asd/workspace/
 
 # Reinitialize
-asd init
-asd net apply --caddy --tunnel
+via init
+via net apply --caddy --tunnel
 ```
 </details>
 
@@ -1361,7 +1339,7 @@ asd net apply --caddy --tunnel
 Enable verbose logging:
 
 ```bash
-ASD_DEBUG=1 asd net apply
+ASD_DEBUG=1 via net apply
 ```
 </details>
 
@@ -1369,8 +1347,8 @@ ASD_DEBUG=1 asd net apply
 <summary><strong>View Logs</strong></summary>
 
 ```bash
-asd logs caddy      # Caddy proxy logs
-asd logs tunnel     # Tunnel logs
+via logs caddy      # Caddy proxy logs
+via logs tunnel     # Tunnel logs
 
 # Logs are in .asd/workspace/logs/
 ```
@@ -1378,8 +1356,8 @@ asd logs tunnel     # Tunnel logs
 
 ### Getting Help
 
-- **GitHub Issues:** https://github.com/asd-engineering/asd-cli/issues
-- **Documentation:** https://asd.host/docs
+- **GitHub Issues:** https://github.com/viaalink/cli/issues
+- **Releases:** https://github.com/viaalink/cli/releases
 
 ---
 
@@ -1391,17 +1369,19 @@ Quick reference of most-used commands:
 
 | Command | Description |
 |---------|-------------|
-| `asd init` | Initialize project workspace |
-| `asd run <task>` | Run automation task from asd.yaml |
-| `asd expose <port>` | Expose a port instantly |
-| `asd login` | Login for tunnels (OAuth; `asd login key` for API-key / CI flow) |
-| `asd net` | Open network TUI |
-| `asd net apply` | Apply configuration |
-| `asd terminal` | Web terminal menu |
-| `asd code` | VS Code server menu |
-| `asd config validate` | Validate asd.yaml configuration |
-| `asd skill install` | Install AI assistant skills |
-| `asd update` | Update ASD CLI |
+| `via init` | Initialize project workspace |
+| `via run <task>` | Run automation task from asd.yaml |
+| `via expose <port>` | Expose a port instantly |
+| `via login` | Sign in to your viaalink.com account (`via whoami`, `via logout`) |
+| `via relay add '<link>'` | Enrol this device on a relay (relay credentials) |
+| `via relay list` | List the relays this device is enrolled on |
+| `via net` | Open network TUI |
+| `via net apply` | Apply configuration |
+| `via terminal` | Web terminal menu |
+| `via code` | VS Code server menu |
+| `via config validate` | Validate asd.yaml configuration |
+| `via skill install` | Install AI assistant skills |
+| `via update` | Update Viaalink CLI |
 
 Full command reference: [um_commands.md](./um_commands.md)
 
@@ -1435,7 +1415,7 @@ Throughout the documentation:
 
 ## 11. Tunnel Protocols
 
-ASD supports different tunnel protocols for different use cases.
+Viaalink CLI supports different tunnel protocols for different use cases.
 
 ### HTTP Tunneling (Default)
 
@@ -1471,22 +1451,22 @@ TCP port forwarding works via direct SSH commands. Any port other than 80/443 is
 
 ```bash
 # Expose PostgreSQL on a random public port
-ssh -p 2223 -R 5432:localhost:5432 $ASD_CLIENT_ID@tunnel.asd.sh
+ssh -p <ssh-port> -R 5432:localhost:5432 $ASD_CLIENT_ID@relay.example.com
 
 # Expose MySQL
-ssh -p 2223 -R 3306:localhost:3306 $ASD_CLIENT_ID@tunnel.asd.sh
+ssh -p <ssh-port> -R 3306:localhost:3306 $ASD_CLIENT_ID@relay.example.com
 
 # Expose Redis
-ssh -p 2223 -R 6379:localhost:6379 $ASD_CLIENT_ID@tunnel.asd.sh
+ssh -p <ssh-port> -R 6379:localhost:6379 $ASD_CLIENT_ID@relay.example.com
 ```
 
-The server assigns a random public port and reports it back in the SSH session output.
+`via relay info <name>` shows the relay's SSH host and port. The relay assigns a random public port and reports it back in the SSH session output.
 
-**Note:** The `asd expose` command currently supports HTTP tunnels only. For TCP:
+**Note:** The `via expose` command currently supports HTTP tunnels only. For TCP:
 - Use direct SSH forwarding as shown above
-- Authenticate via `asd login` first to get credentials
+- Enrol on a relay with `via relay add '<enrolment link>'` first to get credentials
 
-**Private TCP aliases** (e.g., `ssh -R mydb:5432:localhost:5432 ...`) require the `--tcp-aliases` flag on the server. ASD public servers have this disabled for security. Self-hosted servers can enable it.
+**Private TCP aliases** (e.g., `ssh -R mydb:5432:localhost:5432 ...`) require the `--tcp-aliases` flag on the relay. It is disabled by default for security; a relay you run yourself can enable it.
 
 ### Tunnel Protocol Comparison
 
@@ -1518,7 +1498,7 @@ Browser --HTTPS--> Tunnel --> Caddy --WS--> ttyd:7681
 
 | Scenario | Protocol | Example |
 |----------|----------|---------|
-| Web app demo | HTTP | `asd expose 3000` |
+| Web app demo | HTTP | `via expose 3000` |
 | API testing | HTTP | `public: true` in asd.yaml |
 | Database access | TCP | `ssh -R 5432:localhost:5432 ...` |
 | SSH access | TCP | `ssh -R 22:localhost:22 ...` |
@@ -1528,40 +1508,27 @@ Browser --HTTPS--> Tunnel --> Caddy --WS--> ttyd:7681
 
 #### Direct OpenSSH (Advanced)
 
-For maximum control, you can bypass `asd` and connect directly via OpenSSH:
+For maximum control, you can bypass the CLI and connect directly via OpenSSH with this device's relay key:
 
 ```bash
-# Using sshpass for non-interactive auth
-sshpass -p "$ASD_CLIENT_SECRET" ssh \
-  -o PreferredAuthentications=password \
-  -o StrictHostKeyChecking=no \
-  -p 2223 \
+ssh -i <path-to-device-key> \
+  -p <ssh-port> \
   -R "myapp:80:localhost:3000" \
-  "$ASD_CLIENT_ID@s1.eu1.asd.engineer"
+  "$ASD_CLIENT_ID@relay.example.com"
 ```
+
+`via relay info <name>` shows the SSH host and port; `via auth export` prints the key (base64-encoded).
 
 **When to use:**
 - CI/CD pipelines needing minimal dependencies
 - Custom scripting scenarios
 - Debugging connection issues
 
-#### API Token Requests
-
-You can request tokens programmatically via the ASD API:
-
-```bash
-# Request an ephemeral token (5-minute TTL, no auth required)
-curl -X POST https://asd.engineer/functions/v1/create-ephemeral-token \
-  -H "Content-Type: application/json"
-```
-
-For authenticated API access with longer-lived tokens, see [API Reference](./um_api.md).
-
 ---
 
 ## 12. Supabase Integration
 
-ASD includes built-in Supabase support. When enabled, ASD automatically detects running Supabase services, routes them through Caddy, and makes them available in the `asd net` TUI.
+Viaalink CLI includes built-in Supabase support. When enabled, it automatically detects running Supabase services, routes them through Caddy, and makes them available in the `via net` TUI.
 
 ### Enable in asd.yaml
 
@@ -1573,11 +1540,11 @@ project:
 
 ### What you get
 
-When enabled, ASD:
+When enabled, the CLI:
 1. Detects running Supabase services
 2. Registers them in the network
 3. Creates Caddy routes for each service
-4. Makes them available in the `asd net` TUI
+4. Makes them available in the `via net` TUI
 
 **Services:**
 
@@ -1591,14 +1558,14 @@ When enabled, ASD:
 
 ```bash
 # Bootstrap Supabase + extract env vars to .env
-asd supabase bootstrap
+via supabase bootstrap
 
 # Start/stop Supabase services
-asd supabase start
-asd supabase stop
+via supabase start
+via supabase stop
 
 # Extract environment variables to .env
-asd supabase extract
+via supabase extract
 ```
 
 The `bootstrap` command extracts credentials from Supabase and adds them to `.env`:
@@ -1621,8 +1588,33 @@ We plan to add more integrations over time (Redis, Meilisearch, MinIO, etc.). If
 
 ### Get in Touch
 
-- **GitHub Issues**: Report bugs, request features
-- **Contact**: hello@asd.engineer
+- **GitHub Issues**: Report bugs, request features at https://github.com/viaalink/cli/issues
+
+---
+
+## 14. Docker Containers
+
+Pre-built Docker containers give you a portable development environment. For the full reference, see [um_docker.md](./um_docker.md).
+
+### Sandbox
+
+A complete development environment in a container (~750 MB). Includes Viaalink CLI, Caddy, the relay client (`asd-tunnel`), ttyd, VS Code Server, Claude Code, and tmux.
+
+```bash
+# Interactive sandbox (recommended)
+via sandbox shell
+```
+
+`via sandbox shell` mounts this device's relay credentials (`~/.config/asd/tunnel`) read-only, so tunnels work inside the container without a new enrolment.
+
+**Features:**
+- Interactive menu with system info, running services, and active tunnel URLs
+- Tmux session management (detach with `Ctrl+B D`, reattach with `docker start -ai`)
+- Project workspace mounted at `/workspace`
+
+To use relay credentials in your own containers, see [Level 3: Relay Credentials](#level-3-relay-credentials).
+
+See [um_docker.md](./um_docker.md) for environment variables, volume mounts, GitHub Actions examples, and more.
 
 ---
 
@@ -1630,200 +1622,60 @@ We plan to add more integrations over time (Redis, Meilisearch, MinIO, etc.). If
 
 **Install:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/asd-engineering/asd-cli/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
+```
+
+**Enrol on a relay (once per device):**
+```bash
+via relay add '<enrolment link>'
+```
+
+**Sign in to your viaalink.com account (optional):**
+```bash
+via login
 ```
 
 **Initialize workspace:**
 ```bash
-asd init --yes
+via init --yes
 ```
 
 **Start development:**
 ```bash
-asd run dev               # Run 'dev' task from asd.yaml
+via run dev               # Run 'dev' task from asd.yaml
 ```
 
 **Expose a service:**
 ```bash
-asd expose 3000
+via expose 3000
 ```
 
 **Diagnose connection:**
 ```bash
-asd diagnose
+via diagnose
 ```
 
-**Switch tunnel server:**
+**Switch relay:**
 ```bash
-asd server                # Interactive picker
-asd server list           # Show all servers
+via relay                 # Interactive picker
+via relay list            # Show all relays
+via relay set <name>      # Set the default relay
 ```
 
 **Web terminal:**
 ```bash
-asd terminal start
+via terminal start
 ```
 
 **VS Code in browser:**
 ```bash
-asd code start
+via code start
 ```
 
 **Stop everything:**
 ```bash
-asd down                  # Stop workspace services
+via down                  # Stop workspace services
 ```
-
----
-
-## 14. Vault — Secret Management
-
-> **🟠 Alpha Feature** — Ready for testing. API may change between releases. Report issues via GitHub.
-
-ASD Vault provides encrypted secret management backed by Supabase Vault (pgsodium). Secrets are encrypted at rest and never stored in plaintext on disk.
-
-### Quick Start
-
-```bash
-# Requires authentication
-asd login
-
-# Store a secret
-asd vault set DATABASE_URL "postgres://user:pass@host:5432/db"
-
-# Retrieve a secret
-asd vault get DATABASE_URL
-
-# List all secrets (metadata only, no values)
-asd vault list
-```
-
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `asd vault list` | List secrets (name, category, scope — no values) |
-| `asd vault get <name>` | Print decrypted value to stdout |
-| `asd vault set <name> [value]` | Create or update a secret |
-| `asd vault delete <name>` | Soft-delete a secret |
-| `asd vault import <directory>` | Bulk import secrets from a directory |
-| `asd vault export <directory>` | Export all secrets to files |
-| `asd vault inject <template>` | Substitute `asd://` references in a template |
-| `asd vault run --env-file <tpl> -- <cmd>` | Run command with secrets injected as env vars |
-
-### Storing Secrets
-
-```bash
-# From argument
-asd vault set API_KEY "sk-abc123"
-
-# From stdin (for multiline or piped values)
-cat ~/.kube/config | asd vault set kubeconfig --stdin
-
-# From file
-asd vault set tls/cert --file ./cert.pem
-
-# With category and description
-asd vault set db/PASSWORD "s3cret" --category database --description "Production DB password"
-
-# Organisation-scoped (shared with team)
-asd vault set SHARED_TOKEN "xyz" --scope org
-```
-
-### Injecting Secrets into Processes
-
-```bash
-# Run a command with secrets as environment variables
-asd vault run --env-file .env.tpl -- node server.js
-
-# Template file (.env.tpl) uses asd:// references:
-# DATABASE_URL=asd://db/PASSWORD
-# API_KEY=asd://API_KEY
-
-# Substitute references in a config file
-asd vault inject config.tpl config.json
-```
-
-### Import & Export
-
-```bash
-# Import all files from a directory (file names become secret names)
-asd vault import ./secrets/
-
-# Export all secrets back to files (round-trip faithful)
-asd vault export ./backup/
-```
-
-### Scopes
-
-- **Personal** (`--scope user`, default): Only you can access
-- **Organisation** (`--scope org`): Shared with org admins
-
-### Plan Limits
-
-See [asd.host/pricing](https://asd.host/pricing) for current vault quotas and addon options.
-
-### Web Dashboard
-
-Manage secrets at `/workspace/vault/` in the admin dashboard. The web UI shows secret metadata (name, category, scope) but never displays decrypted values — use `asd vault get` from the CLI for that.
-
-### Security
-
-Secrets are encrypted at rest using pgsodium AEAD (XChaCha20-Poly1305). The encryption root key is managed by Supabase KMS and never stored in the database. Access is enforced via Row Level Security per user/organisation.
-
----
-
-## 15. Docker Containers
-
-ASD provides pre-built Docker containers for portable development environments and lightweight tunnel automation. For the full reference, see [um_docker.md](./um_docker.md).
-
-### ASD Sandbox
-
-A complete development environment in a container (~750 MB). Includes ASD CLI, Caddy, asd-tunnel, ttyd, VS Code Server, Claude Code, and tmux.
-
-```bash
-# Interactive sandbox (recommended)
-asd sandbox shell
-
-# Autostart mode: starts all services, drops into interactive menu
-docker run -it --network host \
-  -e ASD_API_KEY=sk_your_key \
-  -v "$(pwd):/workspace" \
-  asd-stack.cr.de-fra.ionos.com/asd-sandbox:latest autostart
-
-# Autostart + expose port 3000 via tunnel
-docker run -it --network host \
-  -e ASD_API_KEY=sk_your_key \
-  -v "$(pwd):/workspace" \
-  asd-stack.cr.de-fra.ionos.com/asd-sandbox:latest \
-  autostart expose 3000
-```
-
-**Features:**
-- Interactive menu with system info, running services, and active tunnel URLs
-- Tmux session management (detach with `Ctrl+B D`, reattach with `docker start -ai`)
-- Automatic login and tunnel provisioning via `ASD_API_KEY`
-- Project workspace mounted at `/workspace`
-
-### ASD Tunnel (Lightweight)
-
-A minimal (~20 MB) scratch container for CI/CD pipelines and automation:
-
-```bash
-# Expose port 3000 — that's it
-docker run --rm --network host \
-  asd-stack.cr.de-fra.ionos.com/asd-tunnel:latest \
-  connect --api-key sk_your_key -F myapp:3000
-
-# Run in background for CI
-docker run -d --network host --name tunnel \
-  asd-stack.cr.de-fra.ionos.com/asd-tunnel:latest \
-  connect --api-key sk_your_key -F myapp:3000
-```
-
-Zero OS, zero shell — just the statically compiled `asd-tunnel` binary and CA certificates.
-
-See [um_docker.md](./um_docker.md) for environment variables, volume mounts, GitHub Actions examples, and more.
 
 ---
 
