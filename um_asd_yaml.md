@@ -456,8 +456,11 @@ via init
 **Options:**
 ```bash
 via init --yes              # Accept all defaults (non-interactive)
-via init --skip-binaries    # Skip binary downloads
+ASD_SKIP_BINARIES=codeserver,mitmproxy via init   # Skip these binary downloads
 ```
+
+To skip downloads for good, list them under `preferences.skip_binaries` in
+your global config (`via config path` shows where it is).
 
 ### `via env-init`
 
