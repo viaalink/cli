@@ -30,6 +30,22 @@ $ArchiveName = "asd-windows-x64.zip"
 $Version = if ($env:VERSION) { $env:VERSION } else { "" }
 $InstallBaseUrl = if ($env:ASD_INSTALL_BASE_URL) { $env:ASD_INSTALL_BASE_URL } else { "" }
 
+# Whether a native program runs (`--version`, exit 0), whatever it prints on
+# stderr: under ErrorActionPreference=Stop, PowerShell 5.1 would otherwise
+# turn a stderr line into a terminating error.
+function Test-NativeRuns([string]$Exe) {
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Exe --version *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    } finally {
+        $ErrorActionPreference = $prevEap
+    }
+}
+
 function Write-Info($Message) {
     Write-Host "[INFO] $Message" -ForegroundColor Green
 }
@@ -244,11 +260,17 @@ function Install-Asd {
     # the orphan-reap pattern release.yml's e2e-windows uses post-test
     # (release.yml:~1990, "Reap asd-spawned orphans"). Best-effort: no error
     # if the process isn't there.
+    # Only processes started from this install dir: a caddy or ttyd the user
+    # runs from anywhere else is none of the installer's business. What was
+    # stopped is listed at the end, with how to start it again.
+    $script:StoppedForUpdate = @()
     foreach ($lockedExe in @('asd', 'via', 'caddy', 'ttyd', 'viaalink-relay', 'asd-tunnel', 'busybox')) {
-        $procs = Get-Process -Name $lockedExe -ErrorAction SilentlyContinue
+        $procs = Get-Process -Name $lockedExe -ErrorAction SilentlyContinue |
+            Where-Object { $_.Path -and $_.Path.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase) }
         if ($procs) {
-            Write-Info "Reaping $($procs.Count) lingering $lockedExe process(es) holding install-dir files"
+            Write-Info "Stopping $(@($procs).Count) running $lockedExe process(es) from $InstallDir so the files can be replaced"
             $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            $script:StoppedForUpdate += $lockedExe
         }
     }
     # Brief settle for the OS to release the file handles.
@@ -388,8 +410,13 @@ function Install-Asd {
         $relayBin = Join-Path $InstallDir "viaalink-relay.exe"
         $oldRelayBin = Join-Path $InstallDir "asd-tunnel.exe"
         if ((Test-Path $oldRelayBin) -and (Test-Path $relayBin)) {
-            & $relayBin --version *> $null
-            if ($LASTEXITCODE -eq 0) {
+            # Native stderr must not stop the install: with
+            # ErrorActionPreference=Stop, PowerShell 5.1 turns any stderr line
+            # into a terminating NativeCommandError, and the relay client logs
+            # a GOMEMLIMIT warning there on Windows. That aborted every update
+            # from a version that still had asd-tunnel.exe.
+            $relayOk = Test-NativeRuns $relayBin
+            if ($relayOk) {
                 Remove-Item -Path $oldRelayBin -Force -ErrorAction SilentlyContinue
                 if (Test-Path $oldRelayBin) {
                     Write-Warn "Could not remove the old $oldRelayBin; remove it once its tunnels have stopped"
@@ -427,7 +454,10 @@ function Install-Asd {
             Write-Info "   Commands: via, asd"
             Write-Info "   Location: $viaBin, $destBin"
 
+            $prevEap = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
             $installedVersion = & $viaBin --version 2>$null
+            $ErrorActionPreference = $prevEap
             if ($LASTEXITCODE -eq 0 -and $installedVersion) {
                 Write-Info "   Version: $installedVersion"
             } else {
@@ -437,35 +467,37 @@ function Install-Asd {
             # from older/broken --version handling fail an otherwise valid install.
             $global:LASTEXITCODE = 0
 
+            if ($script:StoppedForUpdate.Count -gt 0) {
+                Write-Host ""
+                Write-Warn "Stopped for the update: $($script:StoppedForUpdate -join ', '). Nothing restarts them on its own."
+                Write-Warn "   See what was running with: via expose list"
+                Write-Warn "   Web terminal: via terminal start   Exposed services: via expose <port> <name> again"
+            }
+
             Write-Host ""
             Write-Info "To update in the future, run:"
             Write-Host "   via update"
             Write-Host ""
 
-            # Check if in PATH
+            # Put the install dir on the user PATH (no admin needed), like the
+            # bun and rustup installers do: through `irm | iex` or SSH there is
+            # nobody to answer a prompt, and a fresh window could not find
+            # `via` (UX test on Windows, 3.1.6 dev). ASD_NO_MODIFY_PATH=1 skips it.
             $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-            if ($currentPath -notlike "*$InstallDir*") {
-                Write-Warn "$InstallDir is not in your PATH."
-                Write-Host ""
-                Write-Host "To add it permanently, run this in PowerShell (admin):"
-                Write-Host ""
-                Write-Host "   `$path = [Environment]::GetEnvironmentVariable('PATH', 'User')"
-                Write-Host "   [Environment]::SetEnvironmentVariable('PATH', `"`$path;$InstallDir`", 'User')"
-                Write-Host ""
-                Write-Host "Or add it for this session only:"
-                Write-Host "   `$env:PATH += `";$InstallDir`""
-                Write-Host ""
-
-                # Offer to add to PATH (only in interactive mode)
-                if ([Environment]::UserInteractive -and -not $env:CI) {
-                    $addToPath = Read-Host "Add to PATH now? (y/n)"
-                    if ($addToPath -eq "y" -or $addToPath -eq "Y") {
-                        $newPath = "$currentPath;$InstallDir"
-                        [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-                        $env:PATH = "$env:PATH;$InstallDir"
-                        Write-Info "Added to PATH. Restart your terminal for changes to take effect."
-                    }
+            $onPath = @($currentPath -split ";" | Where-Object { $_ -and ($_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) }).Count -gt 0
+            if (-not $onPath) {
+                if ($env:ASD_NO_MODIFY_PATH) {
+                    Write-Warn "$InstallDir is not on your PATH (ASD_NO_MODIFY_PATH is set). Add it with:"
+                    Write-Host "   [Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';$InstallDir', 'User')"
+                } else {
+                    $newPath = if ($currentPath) { "$($currentPath.TrimEnd(';'));$InstallDir" } else { $InstallDir }
+                    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+                    Write-Info "Added $InstallDir to your PATH. Open a new terminal to use via there."
                 }
+            }
+            # This window can use it right away either way.
+            if (@($env:PATH -split ";" | Where-Object { $_ -and ($_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) }).Count -eq 0) {
+                $env:PATH = "$env:PATH;$InstallDir"
             }
         } else {
             Write-Error "Installation failed - binary not found"

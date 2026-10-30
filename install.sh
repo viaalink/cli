@@ -48,6 +48,17 @@ error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 # old or the new complete image — never a half-written one — and a process
 # already running keeps its original inode. Verified: in-place cp -f killed
 # 195/200 concurrent launches; atomic install killed 0/200.
+# Whether a real Bun (not our Termux shim) is on PATH or in ~/.bun.
+has_real_bun() {
+  local b
+  for b in "$(command -v bun 2>/dev/null)" "$HOME/.bun/bin/bun"; do
+    [[ -n "$b" && -x "$b" ]] || continue
+    grep -q "This shim only supports ASD internal bun" "$b" 2>/dev/null && continue
+    return 0
+  done
+  return 1
+}
+
 atomic_install_file() {
   local src="$1" dest="$2" dest_dir tmp
   dest_dir="$(dirname "$dest")"
@@ -633,6 +644,18 @@ Refusing install."
       # Links in the archive (via -> asd) are names, not binaries: copying
       # one would install a second full copy. The names are linked below.
       [[ -L "$f" ]] && continue
+      # The Termux archive carries a `bun` shim for runtimes without Bun. It
+      # must never shadow a real bun: installed on a phone runner, it broke
+      # every later `bun scripts/…` step there (Phone smoke, 2026-10-29).
+      if [[ "$(basename "$f")" == "bun" ]] && has_real_bun; then
+        # A shim an earlier install left here would still shadow it.
+        if grep -q "This shim only supports ASD internal bun" "$INSTALL_DIR/bun" 2>/dev/null; then
+          rm -f "$INSTALL_DIR/bun"
+          info "Removed the bun shim from $INSTALL_DIR: your own bun is used"
+        fi
+        info "Keeping your bun; the bundled bun shim is not installed"
+        continue
+      fi
       atomic_install_file "$f" "$INSTALL_DIR/$(basename "$f")"
     done
 
@@ -656,6 +679,18 @@ Refusing install."
         info "Installed $helper_bin to $asd_bin_dir/"
       fi
     done
+
+    # Up to 3.1.5 the macOS archives carried the Linux ttyd (upstream has no
+    # macOS build); it fails with ENOEXEC. Remove such a copy so `via
+    # terminal` installs the macOS one with Homebrew.
+    if [[ "$(uname -s)" == "Darwin" ]]; then
+      for stale in "$asd_bin_dir/ttyd" "$INSTALL_DIR/ttyd"; do
+        if [[ -f "$stale" ]] && [[ "$(head -c 4 "$stale" | od -An -c | tr -d ' ')" == "177ELF" ]]; then
+          rm -f "$stale"
+          info "Removed $stale: a Linux build that cannot run on macOS (via terminal installs ttyd with Homebrew)"
+        fi
+      done
+    fi
 
     # The relay client was called asd-tunnel before v1.35.0. Remove the old
     # copy once viaalink-relay is in place and runs. Tunnels started from it
