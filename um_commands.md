@@ -39,7 +39,7 @@ Initialize a project workspace with configuration and binaries.
 ```bash
 via init              # Interactive setup
 via init --yes        # Accept all defaults
-via init --skip-binaries  # Skip binary downloads
+ASD_SKIP_BINARIES=all via init  # Skip binary downloads
 ```
 
 **What it does:**

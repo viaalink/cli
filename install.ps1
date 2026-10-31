@@ -3,10 +3,10 @@
 # Or with custom install dir: $env:INSTALL_DIR = "C:\Program Files\asd"; irm ... | iex
 #
 # Options (via environment variables):
-#   INSTALL_DIR  - Custom install directory (default: %LOCALAPPDATA%\asd\bin)
+#   INSTALL_DIR  - Custom install directory (default: %LOCALAPPDATA%\via\bin)
 #   VERSION      - Install a specific version tag (e.g. the latest tag from releases)
 #                  Set VERSION=list to show available releases
-#   ASD_INSTALL_BASE_URL - Override download base URL (for CI testing with local files)
+#   VIA_INSTALL_BASE_URL (or ASD_INSTALL_BASE_URL) - Override download base URL (for CI testing with local files)
 #                          Supports: file:///path, C:\path, or http://...
 #
 # Examples:
@@ -24,7 +24,34 @@ $ErrorActionPreference = "Stop"
 
 # Configuration — releases come only from the public viaalink/cli repo on GitHub.
 $Repo = "viaalink/cli"
-$InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { "$env:LOCALAPPDATA\asd\bin" }
+# 3.2 names: VIA_X wins over ASD_X (the ASD_ names keep working).
+foreach ($v in "HOME", "INSTALL_BASE_URL", "NO_MODIFY_PATH") {
+    $viaValue = [Environment]::GetEnvironmentVariable("VIA_$v")
+    if ($viaValue) { Set-Item -Path "Env:ASD_$v" -Value $viaValue }
+}
+
+# The data directory is `via` since 3.2. An existing %LOCALAPPDATA%\asd is
+# moved there once and a junction is left at the old name, so running tools,
+# PATH entries and stored paths keep working. When Windows holds a file in it
+# open (a running caddy or via.exe), `asd` stays in use; the CLI applies the
+# same rule on its next start (modules/core/helpers/renamed-dir.ts).
+function Resolve-ViaHome {
+    $old = Join-Path $env:LOCALAPPDATA "asd"
+    $new = Join-Path $env:LOCALAPPDATA "via"
+    if (Test-Path -LiteralPath $new -PathType Container) { return $new }
+    $item = Get-Item -LiteralPath $old -Force -ErrorAction SilentlyContinue
+    if (-not $item) { return $new }
+    if ($item.LinkType) { return $old }
+    try { Rename-Item -LiteralPath $old -NewName "via" -ErrorAction Stop } catch { return $old }
+    try {
+        New-Item -ItemType Junction -Path $old -Target $new -ErrorAction Stop | Out-Null
+        return $new
+    } catch {
+        try { Rename-Item -LiteralPath $new -NewName "asd" -ErrorAction Stop; return $old } catch { return $new }
+    }
+}
+$DataHome = if ($env:ASD_HOME) { $env:ASD_HOME } else { Resolve-ViaHome }
+$InstallDir = if ($env:INSTALL_DIR) { $env:INSTALL_DIR } elseif ($env:ASD_HOME) { "$env:LOCALAPPDATA\asd\bin" } else { Join-Path $DataHome "bin" }
 $Platform = "windows-x64"
 $ArchiveName = "asd-windows-x64.zip"
 $Version = if ($env:VERSION) { $env:VERSION } else { "" }
@@ -428,7 +455,7 @@ function Install-Asd {
         }
 
         # Install assets to global ASD home
-        $asdHome = if ($env:ASD_HOME) { $env:ASD_HOME } else { "$env:LOCALAPPDATA\asd" }
+        $asdHome = $DataHome
 
         # Find and install modules
         $modulesDir = Get-ChildItem -Path $extractDir -Directory -Recurse -Depth 2 |
@@ -483,17 +510,29 @@ function Install-Asd {
             # bun and rustup installers do: through `irm | iex` or SSH there is
             # nobody to answer a prompt, and a fresh window could not find
             # `via` (UX test on Windows, 3.1.6 dev). ASD_NO_MODIFY_PATH=1 skips it.
-            $currentPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-            $onPath = @($currentPath -split ";" | Where-Object { $_ -and ($_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) }).Count -gt 0
-            if (-not $onPath) {
-                if ($env:ASD_NO_MODIFY_PATH) {
-                    Write-Warn "$InstallDir is not on your PATH (ASD_NO_MODIFY_PATH is set). Add it with:"
-                    Write-Host "   [Environment]::SetEnvironmentVariable('PATH', [Environment]::GetEnvironmentVariable('PATH','User') + ';$InstallDir', 'User')"
-                } else {
-                    $newPath = if ($currentPath) { "$($currentPath.TrimEnd(';'));$InstallDir" } else { $InstallDir }
-                    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
-                    Write-Info "Added $InstallDir to your PATH. Open a new terminal to use via there."
+            # Read and write the registry value itself, unexpanded and as
+            # REG_EXPAND_SZ: [Environment]::Get/SetEnvironmentVariable expand
+            # %VAR% entries and store a plain string, which froze every
+            # %USERPROFILE%-style entry on the user's PATH.
+            $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey("Environment", $true)
+            try {
+                $currentPath = [string]$envKey.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+                $onPath = @($currentPath -split ";" | Where-Object { $_ -and ([Environment]::ExpandEnvironmentVariables($_).TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) }).Count -gt 0
+                if (-not $onPath) {
+                    if ($env:ASD_NO_MODIFY_PATH) {
+                        Write-Warn "$InstallDir is not on your PATH (ASD_NO_MODIFY_PATH is set). Add it in Settings > Environment variables, or with setx."
+                    } else {
+                        $newPath = if ($currentPath) { "$($currentPath.TrimEnd(';'));$InstallDir" } else { $InstallDir }
+                        $envKey.SetValue("Path", $newPath, [Microsoft.Win32.RegistryValueKind]::ExpandString)
+                        # Tell running programs (Explorer) the environment
+                        # changed, as SetEnvironmentVariable does on its own.
+                        [Environment]::SetEnvironmentVariable("VIAALINK_PATH_REFRESH", "1", "User")
+                        [Environment]::SetEnvironmentVariable("VIAALINK_PATH_REFRESH", $null, "User")
+                        Write-Info "Added $InstallDir to your PATH. Open a new terminal to use via there."
+                    }
                 }
+            } finally {
+                $envKey.Close()
             }
             # This window can use it right away either way.
             if (@($env:PATH -split ";" | Where-Object { $_ -and ($_.TrimEnd('\') -ieq $InstallDir.TrimEnd('\')) }).Count -eq 0) {

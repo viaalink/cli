@@ -457,6 +457,7 @@ via init
 ```bash
 via init --yes              # Accept all defaults (non-interactive)
 ASD_SKIP_BINARIES=codeserver,mitmproxy via init   # Skip these binary downloads
+ASD_SKIP_BINARIES=all via init                    # Skip every binary download
 ```
 
 To skip downloads for good, list them under `preferences.skip_binaries` in
@@ -546,7 +547,7 @@ Use environment variables to override:
 ```bash
 # In .env or shell
 ASD_BIN_LOCATION=workspace        # Per-project binaries
-ASD_SKIP_BINARIES=codeserver,mitmproxy  # Skip specific binaries
+ASD_SKIP_BINARIES=codeserver,mitmproxy  # Skip specific binaries (or "all")
 ```
 
 ---

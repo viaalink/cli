@@ -6,7 +6,7 @@
 #   INSTALL_DIR  - Custom install directory (default: ~/.local/bin)
 #   VERSION      - Install a specific version tag (e.g. VERSION=v2.1.8-beta.1)
 #                  Set VERSION=list to show available releases
-#   ASD_INSTALL_BASE_URL - Override download base URL (for CI testing with local files)
+#   VIA_INSTALL_BASE_URL (or ASD_INSTALL_BASE_URL) - Override download base URL (for CI testing with local files)
 #                          Supports: file:///path/to/dir, http://..., or /absolute/path
 #
 # Examples:
@@ -17,6 +17,13 @@
 # After installation, update with: via update
 
 set -euo pipefail
+
+# 3.2 names: VIA_X wins over ASD_X (the ASD_ names keep working).
+for _v in HOME INSTALL_BASE_URL NO_MODIFY_PATH; do
+  _via="VIA_${_v}"
+  if [[ -n "${!_via:-}" ]]; then export "ASD_${_v}=${!_via}"; fi
+done
+unset _v _via
 
 # Releases come only from the public viaalink/cli repo on GitHub.
 REPO="viaalink/cli"
@@ -143,15 +150,33 @@ resolve_symlink() {
   echo "$p"
 }
 
+# The data directory is `via` since 3.2. An existing `asd` directory is moved
+# there once and a symlink is left at the old name, so running daemons and
+# stored paths keep working; when the move fails, `asd` stays in use. The CLI
+# applies the same rule (modules/core/helpers/renamed-dir.ts).
+migrate_home_dir() {
+  local parent="$1" old="$1/asd" new="$1/via"
+  if [[ -d "$new" ]]; then echo "$new"; return; fi
+  if [[ -L "$old" ]]; then echo "$old"; return; fi
+  if [[ -d "$old" ]]; then
+    if mv "$old" "$new" 2>/dev/null; then
+      if ln -s "$new" "$old" 2>/dev/null; then echo "$new"; return; fi
+      mv "$new" "$old" 2>/dev/null || { echo "$new"; return; }
+    fi
+    echo "$old"; return
+  fi
+  echo "$new"
+}
+
 get_asd_home() {
   if [[ -n "${ASD_HOME:-}" ]]; then
     echo "$ASD_HOME"
     return
   fi
   if [[ "$(uname -s)" == "Darwin" ]]; then
-    echo "$HOME/Library/Application Support/asd"
+    migrate_home_dir "$HOME/Library/Application Support"
   else
-    echo "${XDG_DATA_HOME:-$HOME/.local/share}/asd"
+    migrate_home_dir "${XDG_DATA_HOME:-$HOME/.local/share}"
   fi
 }
 
@@ -702,13 +727,8 @@ Refusing install."
   fi
 
   # Install assets to global ASD home (must match CLI's getAsdHome() logic)
-  local asd_home="${ASD_HOME:-}"
-  if [[ -z "$asd_home" ]]; then
-    case "$(uname -s)" in
-      Darwin) asd_home="$HOME/Library/Application Support/asd" ;;
-      *)      asd_home="${XDG_DATA_HOME:-$HOME/.local/share}/asd" ;;
-    esac
-  fi
+  local asd_home
+  asd_home="$(get_asd_home)"
 
   # Dashboard
   local dashboard_dir
