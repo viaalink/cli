@@ -15,7 +15,7 @@ Release-over-release changes are tracked in [../CHANGELOG.md](../CHANGELOG.md).
 Enrol this device on a relay with the link its operator gives you:
 
 ```bash
-via relay add '<enrolment link>'
+via relay add '<invite link>'
 ```
 
 After that, all tunnel commands work automatically. (`via login` signs in to

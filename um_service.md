@@ -1,6 +1,6 @@
 # Viaalink CLI Services
 
-**Version:** 2.6.0 | **Last Updated:** 2026-10-22
+**Version:** 2.6.0 | **Last Updated:** 2026-11-03
 
 Built-in services for remote development: web terminal, VS Code, database UI, and network inspection.
 
@@ -61,13 +61,20 @@ The `via terminal` menu shows all URLs with the correct port and credentials.
 
 ### Configuration
 
+On Linux and macOS the terminal listens on a UNIX socket,
+`<data dir>/workspace/run/ttyd.sock`, in a directory only you can enter, and
+has no login of its own: ttyd can only take a login on its command line,
+where every local user would read it in `ps`. You reach it through Caddy
+(`via net apply`), which asks for the hub login (`via expose auth`). On
+Windows it listens on 127.0.0.1 and a port, with its own login.
+
 All settings via environment variables (`.env`):
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ASD_TTYD_USERNAME` | Yes | - | Login username |
-| `ASD_TTYD_PASSWORD` | Yes | - | Login password |
-| `ASD_TTYD_PORT` | No | (auto) | Port number |
+| `ASD_TTYD_USERNAME` | Windows | - | ttyd's own login username (Windows only) |
+| `ASD_TTYD_PASSWORD` | Windows | - | ttyd's own login password (Windows only) |
+| `ASD_TTYD_PORT` | No | (auto) | Port number (Windows only) |
 | `ASD_TTYD_SHELL_CMD` | No | `bash` | Shell to run |
 | `ASD_TTYD_CWD` | No | workspace | Starting directory |
 | `ASD_TTYD_PATH` | No | `/` | URL path prefix |
@@ -83,7 +90,7 @@ ASD_TTYD_SHELL_CMD=zsh
 ### Remote Access
 
 To access your terminal from anywhere (needs an enrolled relay — there is no
-default relay; run `via relay add '<enrolment link>'` once):
+default relay; run `via relay add '<invite link>'` once):
 
 ```bash
 # Start terminal

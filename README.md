@@ -136,10 +136,10 @@ Releases: https://github.com/viaalink/cli/releases
 
 ### Step 2: Enrol on a Relay
 
-There is no default relay: before anything can be published, enrol this device on one. The relay's dashboard gives you an enrolment link; quote it so your shell passes it through unchanged:
+There is no default relay: before anything can be published, enrol this device on one. The relay's dashboard gives you an invite link; quote it so your shell passes it through unchanged:
 
 ```bash
-via relay add '<enrolment link>'
+via relay add '<invite link>'
 ```
 
 This creates a device key, registers it with the relay and makes the relay your default. Running your own relay? Add it directly:
@@ -255,7 +255,7 @@ Choose the method that fits your workflow:
 | Daily development workflow | `asd.yaml` config | Medium |
 | CI/CD and containers | Relay key via `via auth export` | Advanced |
 
-All three publish through a relay, so enrol one first (`via relay add '<enrolment link>'`, see [Quick Start](#step-2-enrol-on-a-relay)).
+All three publish through a relay, so enrol one first (`via relay add '<invite link>'`, see [Quick Start](#step-2-enrol-on-a-relay)).
 
 ### Method 1: Quick Expose (`via expose`)
 
@@ -310,7 +310,7 @@ myapp
 
 **Interactive prompts:**
 
-When running in a terminal, `via expose` prompts you for the port if you leave it out, and offers to install the relay client (`asd-tunnel`) if it is missing. If this device is not enrolled on a relay yet, enrol it with `via relay add '<enrolment link>'`.
+When running in a terminal, `via expose` prompts you for the port if you leave it out, and offers to install the relay client (`asd-tunnel`) if it is missing. If this device is not enrolled on a relay yet, enrol it with `via relay add '<invite link>'`.
 
 **When to use:** Quick demos, one-off sharing, testing webhooks.
 
@@ -889,12 +889,12 @@ A device publishes through a relay with its own device key. Choose how that key 
 
 | Method | Best For | viaalink.com account required |
 |--------|----------|-----------------|
-| `via relay add '<enrolment link>'` | Any device you enrol on a relay | No |
+| `via relay add '<invite link>'` | Any device you enrol on a relay | No |
 | SSH key in Docker | Docker, CI | No (an enrolled key) |
 
 #### Method 1: Enrol on a relay (`via relay add`)
 
-The relay's dashboard gives you an enrolment link. Enrolling generates a device
+The relay's dashboard gives you an invite link. Enrolling generates a device
 key, registers it with the relay and makes the relay this device's default:
 
 ```bash
@@ -1276,7 +1276,7 @@ via relay info <name>
 via diagnose
 
 # Not enrolled on a relay yet?
-via relay add '<enrolment link>'
+via relay add '<invite link>'
 
 # Reset tunnels
 via net expose reset
@@ -1464,7 +1464,7 @@ ssh -p <ssh-port> -R 6379:localhost:6379 $ASD_CLIENT_ID@relay.example.com
 
 **Note:** The `via expose` command currently supports HTTP tunnels only. For TCP:
 - Use direct SSH forwarding as shown above
-- Enrol on a relay with `via relay add '<enrolment link>'` first to get credentials
+- Enrol on a relay with `via relay add '<invite link>'` first to get credentials
 
 **Private TCP aliases** (e.g., `ssh -R mydb:5432:localhost:5432 ...`) require the `--tcp-aliases` flag on the relay. It is disabled by default for security; a relay you run yourself can enable it.
 
@@ -1627,7 +1627,7 @@ curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | bash
 
 **Enrol on a relay (once per device):**
 ```bash
-via relay add '<enrolment link>'
+via relay add '<invite link>'
 ```
 
 **Sign in to your viaalink.com account (optional):**

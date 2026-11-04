@@ -706,7 +706,7 @@ There is no default relay. Before using tunnels, enrol this device on a relay
 with the link from the relay's dashboard (quote it):
 
 ```bash
-via relay add '<enrolment link>'
+via relay add '<invite link>'
 ```
 
 A private, self-hosted relay is added by host and key:
@@ -718,7 +718,7 @@ via relay list                     # Relays this device knows, the default marke
 via relay info <name>              # Details of one relay
 ```
 
-> **Note:** `via login` signs you in to your viaalink.com account; relay credentials come from `via relay add '<enrolment link>'`.
+> **Note:** `via login` signs you in to your viaalink.com account; relay credentials come from `via relay add '<invite link>'`.
 
 ### Network Tunnel Control (`via net expose`)
 
@@ -737,7 +737,7 @@ via net expose reset               # Kill all tunnels, clear state
 |------|-----|
 | Quick share a port | `via expose <port>` |
 | Share a configured service | `via net expose start <service-id>` |
-| Enrol on a relay | `via relay add '<enrolment link>'` |
+| Enrol on a relay | `via relay add '<invite link>'` |
 | Sign in to viaalink.com | `via login` |
 | Switch credentials | `via auth switch` |
 
@@ -757,7 +757,7 @@ via gh setup
 
 This adds `.github/workflows/terminal.yml`. The workflow publishes through
 your relay with a device key kept in four repository secrets. On a device
-enrolled on the relay (`via relay add '<enrolment link>'`), run
+enrolled on the relay (`via relay add '<invite link>'`), run
 `via auth export` and store each value it prints as a secret of the same name:
 
 | Secret | Value |
@@ -970,10 +970,10 @@ Logs are stored in `.asd/workspace/logs/`.
 
 | Command | Description |
 |---------|-------------|
-| `via relay add '<enrolment link>'` | Enrol this device on a relay |
+| `via relay add '<invite link>'` | Enrol this device on a relay |
 | `via relay add <name> --host <host> --key <path>` | Add a private, self-hosted relay |
 | `via relay list` | List relays |
-| `via relay info <name>` | Show relay details |
+| `via relay info <name\|domain>` | Show relay details and every domain it offers |
 | `via relay set <name>` | Set the default relay |
 | `via relay rotate-key [name]` | Replace this device's key on its relay |
 | `via relay remove <name>` | Sign out of the relay and remove it locally |

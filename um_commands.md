@@ -117,7 +117,7 @@ via login --no-browser   # Only prints the link and the code
 ```
 
 Signing in does not give this device relay credentials; those come from
-`via relay add '<enrolment link>'`.
+`via relay add '<invite link>'`.
 
 ### `via logout`
 
@@ -414,8 +414,8 @@ Enrol this device on a relay with the link from the relay's dashboard (quote it)
 or register a private, self-hosted relay by host and key.
 
 ```bash
-via relay add '<enrolment link>'           # Enrol from the relay's link
-via relay add '<enrolment link>' --name home
+via relay add '<invite link>'           # Enrol from the relay's link
+via relay add '<invite link>' --name home
 via relay add <name> --host <host> --key <path> [--port <port>] [--domain <domain>]
 ```
 
@@ -492,7 +492,7 @@ eval $(via auth export)
 docker run $(via auth export --docker) my-image via expose 3000
 ```
 
-> **Tip:** Relay credentials come from `via relay add '<enrolment link>'`; `via relay list` shows them.
+> **Tip:** Relay credentials come from `via relay add '<invite link>'`; `via relay list` shows them.
 
 ---
 

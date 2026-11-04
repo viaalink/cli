@@ -83,7 +83,7 @@ via net
 `via` and `asd` are the same command; older scripts that call `asd` keep working.
 
 To publish services on public URLs, enrol a relay first (there is no default
-relay): `via relay add '<enrolment link>'` — the link comes from your relay's dashboard.
+relay): `via relay add '<invite link>'` — the link comes from your relay's dashboard.
 
 ## How the Termux Build Works
 
