@@ -171,9 +171,9 @@ via expose 3000
 You'll see output like:
 
 ```
-Local:  http://localhost:3000
-Caddy:  http://app.localhost
-Tunnel: https://app-x7k9m2.relay.example.com
+📍 Published:   https://app-x7k9m2.relay.example.com  (answers HTTP 401)
+   Your app:    localhost:3000
+   Local route: http://app.localhost  (this machine only, answers HTTP 401)
 ```
 
 **That's it!** Share the tunnel URL with anyone. It's HTTPS, secure, and works from anywhere.
@@ -301,9 +301,8 @@ via expose stop 3000      # Stop by port
 
 ```
 myapp
-    Port:     3000
-    Local:    http://myapp.localhost
-    Tunnel:   https://myapp-x7k9m2.relay.example.com
+    Published:   https://myapp-x7k9m2.relay.example.com
+    Port:        3000
     Status:   ✅ Online
     Uptime:   🕐 2h 15m
 ```
@@ -394,7 +393,7 @@ via net                   # Open TUI dashboard
 
 ### Method 3: CI/CD and Containers
 
-A pipeline or container uses the key of a device you enrolled on a relay. `via auth export` prints it as environment variables, or you mount `~/.config/asd/tunnel` into the container. See [Level 3: Relay Credentials](#level-3-relay-credentials) for both options.
+A pipeline or container uses the key of a device you enrolled on a relay. `via auth export --with-key` prints it as environment variables, or you mount `~/.config/asd/tunnel` into the container. See [Level 3: Relay Credentials](#level-3-relay-credentials) for both options.
 
 **When to use:** CI/CD pipelines, Docker containers, automation.
 
@@ -432,7 +431,7 @@ via terminal start
 | Method | URL |
 |--------|-----|
 | Local Direct | `http://localhost:<port>/` |
-| Via Caddy | `http://asd.localhost/asde/terminal/` |
+| Via Caddy | `http://via.localhost/asde/terminal/` |
 | Via Tunnel | `https://hub-x7k9m2.relay.example.com/asde/terminal/` |
 
 **4. Stop when done:**
@@ -451,9 +450,9 @@ Terminal (ttyd) - Web Terminal Access
 Status: Running on port 7681
 
 Access URLs:
-  Local:  http://admin:***@localhost:7681/
-  Caddy:  http://asd.localhost/asde/terminal/
-  Tunnel: https://hub-x7k9m2.relay.example.com/asde/terminal/
+  Published:   https://hub-x7k9m2.relay.example.com/asde/terminal/
+  Local route: http://via.localhost/asde/terminal/  (this machine)
+  Your app:    http://localhost:7681/  (this machine)
 
 Actions:
   [1] Open in browser
@@ -464,7 +463,7 @@ Actions:
 | Access Method | When to Use |
 |---------------|-------------|
 | **Local Direct** | On the same machine |
-| **Caddy Route** | Local network, other devices on LAN |
+| **Caddy Route** | This machine (other devices on the LAN only with `network.caddy.lan_access: true`) |
 | **Tunnel** | Remote access from anywhere |
 
 ### Configuration
@@ -599,7 +598,7 @@ via code start
 | Method | URL |
 |--------|-----|
 | Local Direct | `http://localhost:<port>/` |
-| Via Caddy | `http://asd.localhost/asde/codeserver/` |
+| Via Caddy | `http://via.localhost/asde/codeserver/` |
 | Via Tunnel | `https://hub-x7k9m2.relay.example.com/asde/codeserver/` |
 
 **3. Stop when done:**
@@ -618,9 +617,9 @@ VS Code Server - Browser-based IDE
 Status: Running on port 8080
 
 Access URLs:
-  Local:  http://localhost:8080/
-  Caddy:  http://asd.localhost/asde/codeserver/
-  Tunnel: https://hub-x7k9m2.relay.example.com/asde/codeserver/
+  Published:   https://hub-x7k9m2.relay.example.com/asde/codeserver/
+  Local route: http://via.localhost/asde/codeserver/  (this machine)
+  Your app:    http://localhost:8080/  (this machine)
 
 Actions:
   [1] Open in browser
@@ -944,23 +943,27 @@ Pass SSH key content as env vars — no file mounting needed:
 
 ```bash
 # Export credentials (convenience command)
-eval $(via auth export)
+eval $(via auth export --with-key)
 
 # Or with Docker flags
 docker run \
-  $(via auth export --docker) \
+  $(via auth export --docker --with-key) \
   my-image via expose 3000
 ```
 
-The `via auth export` command outputs:
+`via auth export --with-key` outputs:
 ```bash
-export ASD_TUNNEL_KEY="<base64-encoded-private-key>"
-export ASD_TUNNEL_KEY_ID="<key-id>"
-export ASD_TUNNEL_HOST="relay.example.com"
-export ASD_TUNNEL_PORT="2222"
+export VIA_TUNNEL_KEY="<base64-encoded-private-key>"
+export VIA_TUNNEL_KEY_ID="<key-id>"
+export VIA_TUNNEL_HOST="relay.example.com"
+export VIA_TUNNEL_PORT="2222"
+export VIA_TUNNEL_HOST_KEY_FINGERPRINTS="SHA256:...,SHA256:..."
 ```
 
-Use `--docker` for Docker `-e` flag format instead of shell exports.
+Without `--with-key` the private key (`VIA_TUNNEL_KEY`) is left out. Use
+`--docker` for Docker `-e` flag format instead of shell exports. For GitHub
+Actions, `via gh setup` stores the key as repository secrets without printing
+it.
 
 ### Choosing the Right Level
 
@@ -1038,7 +1041,7 @@ For current options, see [BASIC_AUTH.md](./BASIC_AUTH.md).
 | Pattern | URL Example | Use Case |
 |---------|-------------|----------|
 | **Local Direct** | `http://localhost:3000` | Same machine |
-| **Caddy Route** | `http://asd.localhost/myapp/` | Local network, LAN |
+| **Caddy Route** | `http://via.localhost/myapp/` | This machine (LAN with `network.caddy.lan_access: true`) |
 | **Tunnel Remote** | `https://myapp-x7k9m2.relay.example.com/` | Anywhere |
 
 ```mermaid
@@ -1090,19 +1093,25 @@ Example: `http://myapp.localhost/`
 **Path-based routing:**
 
 ```
-http://asd.localhost/<path>/
+http://via.localhost/<path>/
 ```
 
-Example: `http://asd.localhost/api/`
+Example: `http://via.localhost/api/`
+
+A service with neither its own path nor its own host gets `/via/<service>`
+on the project host (`via.localhost` unless `project.domain` names another).
+Workspaces made before this used `asd.localhost` and `/asde/<service>`; after
+`via net apply` that old address answers with a redirect to the new one, so
+bookmarks keep working.
 
 Built-in services use the `/asde/` path prefix:
-- terminal: `http://asd.localhost/asde/terminal/`
-- codeserver: `http://asd.localhost/asde/codeserver/`
+- terminal: `http://via.localhost/asde/terminal/`
+- codeserver: `http://via.localhost/asde/codeserver/`
 
 **When to use:**
 - Multiple services with nice URLs
 - Testing with realistic hostnames
-- Accessing from other devices on LAN
+- Accessing from other devices on the LAN (opt in with `network.caddy.lan_access: true`)
 
 **How it works:**
 ```
@@ -1136,8 +1145,8 @@ Browser --> Relay --> SSH Tunnel --> Caddy --> Your App
 | Service | Local | Caddy | Tunnel |
 |---------|-------|-------|--------|
 | Your app | `http://localhost:3000` | `http://myapp.localhost` | `https://myapp-x7k9m2.relay.example.com` |
-| terminal | `http://localhost:7681` | `http://asd.localhost/asde/terminal/` | `https://hub-xxx.../asde/terminal/` |
-| codeserver | `http://localhost:8080` | `http://asd.localhost/asde/codeserver/` | `https://hub-xxx.../asde/codeserver/` |
+| terminal | `http://localhost:7681` | `http://via.localhost/asde/terminal/` | `https://hub-xxx.../asde/terminal/` |
+| codeserver | `http://localhost:8080` | `http://via.localhost/asde/codeserver/` | `https://hub-xxx.../asde/codeserver/` |
 
 ### Finding Your URLs
 
@@ -1517,7 +1526,7 @@ ssh -i <path-to-device-key> \
   "$ASD_CLIENT_ID@relay.example.com"
 ```
 
-`via relay info <name>` shows the SSH host and port; `via auth export` prints the key (base64-encoded).
+`via relay info <name>` shows the SSH host and port; `via auth export --with-key` prints the key (base64-encoded).
 
 **When to use:**
 - CI/CD pipelines needing minimal dependencies

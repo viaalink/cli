@@ -1,6 +1,6 @@
 # Viaalink CLI Advanced Manual (asd.yaml and Operations)
 
-**Version:** 2.7.0 | **Last Updated:** 2026-10-22
+**Version:** 2.8.1 | **Last Updated:** 2026-11-09
 
 This is the deep-dive reference. If you want the quick, simple flow, start here:
 - `docs/USER_MANUAL.md`
@@ -189,7 +189,20 @@ network:
       enabled: true
       realm: "My Project"
       routes: ["host", "path"]    # Which routes to protect
+
+    lan_access: false             # true: listen on every network interface
 ```
+
+Caddy listens on this machine only (127.0.0.1 and ::1). With
+`lan_access: true` it listens on every network interface: other devices on
+your network can reach it, or the internet when this machine is a server
+(for example a Relay host running Caddy on 80/443). That opens every route,
+including routes without a login. A relay address does not need it.
+
+The setting takes effect on the next `via net apply` or `via caddy start`:
+both rewrite Caddy's config and reload a running Caddy in place. A shared
+(global) Caddy reads `lan_access` from the project that starts or reloads it,
+so the project that applied last decides for every project on that Caddy.
 
 ### Basic Authentication
 
@@ -282,6 +295,86 @@ network:
 
 The ingress tag is added as a response header. By default, all services use the value from the `ASD_INGRESS_TAG` environment variable (or `"local-caddy"`). Set `ingressTag` per-service to override, or set to `null` to disable.
 
+### Inspecting a Database (TCP services)
+
+`inspect: true` also works for a service that does not speak HTTP. Mark it
+`tunnelProtocol: "tcp"`:
+
+```yaml
+network:
+  services:
+    shopdb:
+      dial: "127.0.0.1:5432"
+      tunnelProtocol: tcp      # routed by a Caddy layer4 listener, not an HTTP route
+      inspect: true            # show its SQL in the network inspector
+```
+
+With `inspect: true`, `via net apply` gives the service a Caddy layer4
+listener of its own on a free loopback port and points that listener at the
+network inspector (mitmproxy), which forwards to the database and decodes the
+Postgres wire protocol: the SQL, its parameters, the columns and rows that
+came back, errors. `via net urls` shows both addresses:
+
+```
+    shopdb
+      TCP     tcp://127.0.0.1:41871
+      Inspect http://localhost:40213/  🔎 SQL of new connections
+```
+
+Connect your client to the TCP address (`sslmode=disable`) and open the
+Inspect URL. Each connection is one flow; its **Comment** tab holds the
+transcript. Setting `inspect: false` and applying again points the same
+listener straight at the database, in place. A `tunnelProtocol: tcp` service
+that was never inspected is routed as before (no layer4 listener).
+
+What the inspector shows, and to whom: the SQL text, its parameters and the
+rows that came back, including any secret inside them (an
+`ALTER ROLE … PASSWORD '…'`, a token in a row). Anyone who can open the
+inspector's web UI sees them, so treat its URL and token like database
+access. The login itself is not shown and its bytes are never stored in the
+inspector (not in the flow, its Stream Data views or a saved flow file): the
+transcript says `LOGIN  credentials sent (not shown)`. The decoded lines are
+not written to via's log file (`<workspace>/logs/mitmproxy.log`).
+
+Two limits:
+
+- Connections that are already open keep their old path. A connection pool
+  shows up in the inspector once it opens new connections.
+- TLS clients (`sslmode=require`) are not decoded: the transcript only says the
+  client asked for TLS.
+
+This needs via's Caddy with the caddy-l4 module. With a Caddy without it,
+`via net apply` says so for every service with `inspect: true`, names the fix,
+and fails; it never falls back to an uninspected route. Until those builds are published, install
+one from a directory of `just caddy-build` output:
+`VIA_CADDY_BASE_URL=<dir> via deps install caddy --force`, then restart Caddy.
+
+**After a Caddy restart** (`via caddy stop` / `via caddy start`, a reboot, a
+crash) the listener comes back on the same address: `via caddy start` writes it
+into Caddy's config file. Its route goes to the inspector only when the
+inspector is still running; otherwise straight to the database, and
+`via caddy start` says so (`inspect is on, but the inspector is not running …
+Start it with: via net apply`). `via net` and `via net urls` show the state
+after the restart, never the one before it.
+
+**A database from a package or plugin.** The same works for a service declared
+in a `net.manifest.yaml` instead of `via.yaml`:
+
+```yaml
+# packages/shop/net.manifest.yaml
+id: shop
+services:
+  - id: shopdb
+    name: Shop database
+    dial: "127.0.0.1:5432"
+    tunnelProtocol: tcp
+    inspect: true
+```
+
+`via.yaml` can switch it on or off for one project with an overlay on its id
+(`shopdb: { inspect: false }`), and can make a plugin's service a TCP one with
+`tunnelProtocol: tcp`; as for every manifest field, `via.yaml` wins.
+
 ### Declarative Environment Variables
 
 Services can declare environment variables that are automatically written to `.env` during `via net apply`. This is useful for configuring services with tunnel URLs that are only known after tunnels are created.
@@ -311,16 +404,9 @@ SUPABASE_AUTH_SITE_URL=https://app-x7k9m2.relay.example.com
 - The parameterless `exposedOrigin()` reads the `subdomain` from the same service block
 - If no relay is enrolled (no tunnel credentials), the env var is skipped (not written as empty)
 - Writing is idempotent — re-running `net apply` only writes if values changed
-- Use `exposedOriginWithAuth()` to include basic auth credentials in the URL
-
-**Example with auth URL:**
-
-```yaml
-env:
-  APP_URL: "${{ macro.exposedOriginWithAuth() }}"
-  # Result: https://admin:password@app-x7k9m2.relay.example.com
-  # Reads ASD_BASIC_AUTH_USERNAME and ASD_BASIC_AUTH_PASSWORD from .env
-```
+- No macro puts a login into a URL: a URL with `user:pass@` in it ends up in `.env`, in process
+  listings and in logs. Give a client the login separately (`ASD_BASIC_AUTH_USERNAME` /
+  `ASD_BASIC_AUTH_PASSWORD`), e.g. `curl -u "$ASD_BASIC_AUTH_USERNAME:$ASD_BASIC_AUTH_PASSWORD" "$APP_URL"`.
 
 ---
 
@@ -448,7 +534,7 @@ via init
 
 **What it does:**
 1. Creates `asd.yaml` if missing (from template)
-2. Creates `.asd/workspace/` directory
+2. Creates the `.via/` state directory (`.via/workspace/`) and adds `.via/` to `.gitignore` in a git repository
 3. Downloads helper binaries (Caddy, ttyd)
 4. Optionally discovers running services
 5. Sets up `.env` from template
@@ -478,8 +564,8 @@ via env-init --override     # Replace entire .env
 your-project/
 ├── asd.yaml                 # Project configuration
 ├── .env                     # Environment variables
-└── .asd/                    # (if using submodule)
-    └── workspace/           # Runtime state (git-ignored)
+└── .via/                    # Local state of the CLI (git-ignored)
+    └── workspace/           # Runtime state
         ├── bin/             # Downloaded binaries (optional)
         ├── network/
         │   └── registry.json  # Service registry
@@ -755,21 +841,41 @@ Install GitHub workflows for remote terminal access:
 via gh setup
 ```
 
-This adds `.github/workflows/terminal.yml`. The workflow publishes through
-your relay with a device key kept in four repository secrets. On a device
-enrolled on the relay (`via relay add '<invite link>'`), run
-`via auth export` and store each value it prints as a secret of the same name:
+This adds `.github/workflows/terminal.yml`, a short workflow that calls the
+[Viaalink CI/CD Action](https://github.com/viaalink/cicd)
+(`uses: viaalink/cicd@v2`), and, after asking, stores the
+secrets it reads on the repository (`gh secret set`, each value on gh's
+stdin; nothing is printed). Run it on a device enrolled on the relay
+(`via relay add '<invite link>'`):
 
 | Secret | Value |
 |--------|-------|
-| `ASD_TUNNEL_KEY` | The device key (base64) |
-| `ASD_TUNNEL_KEY_ID` | The device key's id |
-| `ASD_TUNNEL_HOST` | The relay host |
-| `ASD_TUNNEL_PORT` | The relay SSH port (optional; 2222 when unset) |
+| `VIA_TUNNEL_KEY` | The device key (base64) |
+| `VIA_TUNNEL_KEY_ID` | The device key's id |
+| `VIA_TUNNEL_HOST` | The relay host |
+| `VIA_TUNNEL_PORT` | The relay SSH port (optional; 2222 when unset) |
+| `VIA_TUNNEL_HOST_KEY_FINGERPRINTS` | The relay's SSH host key fingerprints (`SHA256:...`, comma separated); the CLI never connects to a relay whose host key it cannot pin |
+| `VIA_TERMINAL_PASSWORD` | Password of the login in front of the terminal (generated, saved on this machine) |
+
+The password is a secret rather than a workflow input because inputs show on
+the run's page to everyone who can read the repository. Without gh or admin
+access, store them by hand, typing each value at gh's prompt
+(`via auth export --with-key` prints the key values):
 
 ```bash
-gh secret set ASD_TUNNEL_KEY --repo <owner>/<repo>   # paste the value; repeat per secret
+gh secret set VIA_TUNNEL_KEY --repo <owner>/<repo>   # paste at the prompt; repeat per secret
 ```
+
+**Upgrading from before 3.2:** the secrets were named `ASD_TUNNEL_*`, and
+nothing reads those names now. Run `via gh setup` again (it installs the
+current workflow and stores the new names), then delete the old secrets with
+`gh secret delete ASD_TUNNEL_KEY --repo <owner>/<repo>` (and `_KEY_ID`,
+`_HOST`, `_PORT`). `via gh terminal` names the secrets to rename.
+
+**Repositories set up before the host key pins were stored** lack
+`VIA_TUNNEL_HOST_KEY_FINGERPRINTS`, and the run stops at "Check relay
+secrets". Run `via gh setup` again. It refuses a relay key with no pins
+stored on the device: re-enrol with `via relay add '<invite link>'` first.
 
 Whoever opens the terminal can read that key on the runner, so enrol a
 device for CI alone. `via gh terminal` checks the secrets are there before it
@@ -796,7 +902,7 @@ via gh                     # Show GitHub integration menu
 via gh setup               # Install workflow files
 via gh terminal            # Start remote terminal session
 via gh list                # List recent workflow runs
-via gh runs                # Show active runs
+via gh runs                # Recent terminal sessions
 via gh active              # Check active sessions
 via gh stop                # Stop running session
 via gh login               # Configure GitHub authentication
@@ -830,7 +936,7 @@ via update version         # Current and latest versions
 **"Caddy won't start":**
 ```bash
 via caddy stop
-rm -rf .asd/workspace/caddy/
+rm -rf .via/workspace/caddy/
 via caddy start
 via net apply
 ```
@@ -838,7 +944,7 @@ via net apply
 **"Tunnels not connecting":**
 ```bash
 pkill -f "asd-tunnel"
-rm -rf .asd/workspace/tunnels/
+rm -rf .via/workspace/tunnels/
 via net apply --tunnel
 ```
 
@@ -850,7 +956,7 @@ via net discover           # Manual discovery
 
 **"Registry corruption":**
 ```bash
-rm .asd/workspace/network/registry.json
+rm .via/workspace/network/registry.json
 via net apply
 ```
 
@@ -864,7 +970,7 @@ pkill -f "caddy run"
 pkill -f "asd-tunnel"
 
 # Remove runtime state
-rm -rf .asd/workspace/
+rm -rf .via/workspace/
 
 # Re-initialize
 via init
@@ -889,7 +995,7 @@ via logs caddy             # Caddy proxy logs
 via logs tunnel            # Tunnel logs
 ```
 
-Logs are stored in `.asd/workspace/logs/`.
+Logs are stored in `.via/workspace/logs/`.
 
 ---
 
@@ -986,7 +1092,7 @@ Logs are stored in `.asd/workspace/logs/`.
 | `via gh setup` | Install workflows |
 | `via gh terminal` | Start remote terminal |
 | `via gh list` | List workflow runs |
-| `via gh runs` | Show active workflow runs |
+| `via gh runs` | Recent terminal sessions of this repository |
 | `via gh active` | Check active sessions |
 | `via gh stop` | Stop running session |
 | `via gh login` | Configure GitHub authentication |

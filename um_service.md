@@ -54,7 +54,7 @@ After starting, you get three access methods:
 | Method | URL Format | Use Case |
 |--------|------------|----------|
 | **Local** | `http://localhost:<port>/` | Same machine |
-| **Caddy** | `http://asd.localhost/asde/terminal/` | Local network |
+| **Caddy** | `http://via.localhost/asde/terminal/` | This machine |
 | **Tunnel** | `https://hub-x7k9m2.relay.example.com/asde/terminal/` | Anywhere |
 
 The `via terminal` menu shows all URLs with the correct port and credentials.
@@ -101,7 +101,7 @@ via net apply --tunnel
 
 # Get the URL
 via terminal
-# Look for "Tunnel:" URL in the menu
+# Look for the "Published:" URL in the menu
 ```
 
 Share the tunnel URL and credentials with anyone who needs access.
@@ -159,7 +159,7 @@ via code stop
 | Method | URL Format | Use Case |
 |--------|------------|----------|
 | **Local** | `http://localhost:<port>/` | Same machine |
-| **Caddy** | `http://asd.localhost/asde/codeserver/` | Local network |
+| **Caddy** | `http://via.localhost/asde/codeserver/` | This machine |
 | **Tunnel** | `https://hub-x7k9m2.relay.example.com/asde/codeserver/` | Anywhere |
 
 ### Configuration
@@ -200,7 +200,7 @@ via net apply --tunnel
 
 # Get the URL
 via code
-# Look for "Tunnel:" URL in the menu
+# Look for the "Published:" URL in the menu
 ```
 
 ### Extensions
@@ -234,7 +234,7 @@ code-server uses the [Open VSX](https://open-vsx.org/) marketplace, not Microsof
 | "Port in use" | `via code stop` or kill the process |
 | "Auth failing" | Verify `ASD_CODESERVER_AUTH` and password in `.env` |
 | "Slow/laggy" | Close unused tabs; check network connection |
-| "Extensions not loading" | Clear extension cache: remove `.asd/workspace/code/data/extensions` |
+| "Extensions not loading" | Clear extension cache: remove `.via/workspace/code/data/extensions` |
 
 ---
 
@@ -277,7 +277,7 @@ via database stop
 | Method | URL Format |
 |--------|------------|
 | **Local** | `http://localhost:<port>/` |
-| **Caddy** | `http://asd.localhost/asde/database/` |
+| **Caddy** | `http://via.localhost/asde/database/` |
 | **Tunnel** | Via hub tunnel path |
 
 ### Configuration
@@ -430,7 +430,7 @@ After setup, services appear in the TUI with these access patterns:
 | Method | Studio URL |
 |--------|------------|
 | Local | `http://localhost:54323` |
-| Caddy | `http://asd.localhost/asde/supabase-studio/` |
+| Caddy | `http://via.localhost/asde/supabase-studio/` |
 | Tunnel | Via hub tunnel (if `public: true`) |
 
 **Service overlays:**

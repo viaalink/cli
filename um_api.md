@@ -34,18 +34,17 @@ docker run -v ~/.config/asd/tunnel:/root/.config/asd/tunnel:ro my-image
 **Environment variables:**
 ```bash
 # Export credentials from host
-eval $(via auth export)
+eval $(via auth export --with-key)
 
-# Pass to Docker
+# Pass to Docker by name: docker copies each value from this shell, so the
+# key is not in the docker command line
 docker run \
-  -e ASD_TUNNEL_KEY="$ASD_TUNNEL_KEY" \
-  -e ASD_TUNNEL_KEY_ID="$ASD_TUNNEL_KEY_ID" \
-  -e ASD_TUNNEL_HOST="$ASD_TUNNEL_HOST" \
-  -e ASD_TUNNEL_PORT="$ASD_TUNNEL_PORT" \
+  -e VIA_TUNNEL_KEY -e VIA_TUNNEL_KEY_ID -e VIA_TUNNEL_HOST -e VIA_TUNNEL_PORT \
+  -e VIA_TUNNEL_HOST_KEY_FINGERPRINTS \
   my-image via expose 3000
 
 # Or use the Docker flag format
-docker run $(via auth export --docker) my-image via expose 3000
+docker run $(via auth export --docker --with-key) my-image via expose 3000
 ```
 
 **Register a key already authorized on a relay:**
@@ -61,7 +60,7 @@ via relay add <name> --host <host> --key /path/to/private_key
 
 | Priority | Variables | Description |
 |----------|-----------|-------------|
-| 1 | `ASD_TUNNEL_KEY` + `ASD_TUNNEL_KEY_ID` | SSH key via env var (Docker, containers) |
+| 1 | `VIA_TUNNEL_KEY` + `VIA_TUNNEL_KEY_ID` (+ `VIA_TUNNEL_HOST_KEY_FINGERPRINTS`) | SSH key via env var (Docker, containers; `via auth export --with-key`, read as `ASD_TUNNEL_*`); the relay's host key pins come with it, and without them the connection is refused |
 | 2 | *Credential registry* | Relays added with `via relay add` |
 
 **Connection (optional, auto-detected):**

@@ -86,6 +86,38 @@ function Write-Error($Message) {
     exit 1
 }
 
+# Remove the .$Name.old-* and .$Name.failed-* trees next to $Parent\$Name that
+# an earlier install or update could not remove, with the same rules as
+# `via update` (modules/update/scripts/bundled-resources.ts) and install.sh:
+#  - none while $Parent\$Name is missing: two failed renames in a row leave
+#    the previous tree only in .$Name.old-*;
+#  - none younger than 5 minutes, nor one whose pid (<stamp>-<pid> in the
+#    name; seconds from an installer, milliseconds from an update) still
+#    runs, for up to a day; pid 1 says nothing and goes by age alone;
+#  - a name without a stamp goes by its last write time.
+# .$Name.new-* trees are never touched: another run may be copying into one.
+function Remove-LeftoverTrees($Parent, $Name) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Parent $Name))) { return }
+    $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    foreach ($kind in @("old", "failed")) {
+        $prefix = ".$Name.$kind-"
+        Get-ChildItem -LiteralPath $Parent -Force -Filter "$prefix*" -ErrorAction SilentlyContinue | ForEach-Object {
+            $id = $_.Name.Substring($prefix.Length)
+            if ($id -match '^(\d{1,18})-(\d{1,9})(-|$)') {
+                $stamp = [int64]$Matches[1]
+                if ($Matches[1].Length -ge 13) { $stamp = [int64][math]::Floor($stamp / 1000) }
+                $leftoverPid = [int]$Matches[2]
+                $age = $now - $stamp
+                if ($age -lt 300) { return }
+                if ($age -lt 86400 -and $leftoverPid -gt 1 -and (Get-Process -Id $leftoverPid -ErrorAction SilentlyContinue)) { return }
+            } elseif (((Get-Date) - $_.LastWriteTime).TotalMinutes -lt 5) {
+                return
+            }
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 # Replace the directory $Dest with a copy of $Source without removing $Dest in
 # place. Remove-Item -Recurse on a tree that is still in use fails halfway and
 # leaves neither the old nor the new one (release v3.0.0 hit the same with
@@ -96,11 +128,8 @@ function Install-Directory($Source, $Dest) {
     $parent = Split-Path -Parent $Dest
     $name = Split-Path -Leaf $Dest
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
-    # Trees an earlier install could not remove. Only ".old-" ones: a ".new-"
-    # one may be another installer's copy in progress.
-    Get-ChildItem -Path $parent -Directory -Force -Filter ".$name.old-*" -ErrorAction SilentlyContinue | ForEach-Object {
-        Remove-Item -Path $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
-    }
+    # Trees an earlier install or update could not remove.
+    Remove-LeftoverTrees $parent $name
     $stage = Join-Path $parent ".$name.new-$(Get-Random)"
     Copy-Item -Path $Source -Destination $stage -Recurse
     $aside = $null
@@ -116,9 +145,17 @@ function Install-Directory($Source, $Dest) {
     try {
         Rename-Item -Path $stage -NewName $name
     } catch {
-        if ($aside) { Rename-Item -Path $aside -NewName $name -ErrorAction SilentlyContinue }
+        $reason = $_
         Remove-Item -Path $stage -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Error "Could not move the new $name into ${Dest}: $_"
+        if ($aside) {
+            Rename-Item -Path $aside -NewName $name -ErrorAction SilentlyContinue
+            if (-not (Test-Path -LiteralPath $Dest)) {
+                # The previous tree is now the only copy; the sweep keeps it
+                # while $Dest is missing.
+                Write-Error "Could not move the new $name into ${Dest}, nor the previous one back: it is kept at ${aside}: $reason"
+            }
+        }
+        Write-Error "Could not move the new $name into ${Dest}: $reason"
     }
     if ($aside) {
         Remove-Item -Path $aside -Recurse -Force -ErrorAction SilentlyContinue
@@ -143,92 +180,124 @@ function Get-AuthHeaders {
     return $headers
 }
 
+# Why a GitHub API call failed: HTTP status (0 = no response) and the body,
+# from the ErrorRecord Invoke-RestMethod threw. Works on Windows PowerShell 5.1
+# (WebException) and PowerShell 7 (HttpResponseException).
+function Get-ApiFailure($ErrorRecord) {
+    $status = 0
+    $response = $ErrorRecord.Exception.Response
+    if ($null -ne $response -and $null -ne $response.StatusCode) {
+        $status = [int]$response.StatusCode
+    }
+    $body = ""
+    if ($ErrorRecord.ErrorDetails -and $ErrorRecord.ErrorDetails.Message) {
+        $body = $ErrorRecord.ErrorDetails.Message
+    }
+    return @{ Status = $status; Body = $body }
+}
+
+# Stop with the reason a GitHub API call failed. A 403 rate limit, a 5xx and a
+# dropped connection must not all read as "not found".
+function Stop-GitHubApiFailure($Failure, [string]$What) {
+    $status = $Failure.Status
+    $hasToken = [bool]($env:GITHUB_TOKEN -or $env:GH_TOKEN)
+    if ($status -eq 0) {
+        Write-Error "Could not reach the GitHub API (api.github.com) while looking up $What. Check your internet connection."
+    }
+    if ($status -eq 429 -or ($status -eq 403 -and $Failure.Body -match 'rate limit')) {
+        if ($hasToken) {
+            Write-Error "GitHub API rate limit reached for this token while looking up $What (HTTP $status). Try again later."
+        }
+        Write-Error "GitHub API rate limit reached while looking up $What (HTTP $status). Requests without a token get 60 per hour per IP address, and CI runners share theirs. Set GITHUB_TOKEN (in GitHub Actions: GITHUB_TOKEN: `${{ github.token }}) and try again."
+    }
+    if ($status -eq 401) {
+        Write-Error "GitHub API rejected the token in GITHUB_TOKEN/GH_TOKEN (HTTP 401) while looking up $What. Fix or unset it and try again."
+    }
+    Write-Error "GitHub API answered HTTP $status while looking up $What. Try again later."
+}
+
 function Get-SpecificVersion($RequestedVersion) {
     # Ensure it starts with 'v'
     if (-not $RequestedVersion.StartsWith("v")) {
         $RequestedVersion = "v$RequestedVersion"
     }
 
-    $repos = @($Repo)
     $headers = Get-AuthHeaders
+    $apiUrl = "https://api.github.com/repos/$Repo/releases/tags/$RequestedVersion"
 
-    foreach ($repo in $repos) {
-        $apiUrl = "https://api.github.com/repos/$repo/releases/tags/$RequestedVersion"
-
-        try {
-            $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
-            if ($response.tag_name) {
-                $script:ActiveRepo = $repo
-                return $response.tag_name
-            }
-        } catch {
-            continue
+    try {
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+    } catch {
+        $failure = Get-ApiFailure $_
+        if ($failure.Status -eq 404) {
+            Write-Error "Version $RequestedVersion not found. Use `$env:VERSION = 'list'` to see available versions."
         }
+        Stop-GitHubApiFailure $failure "version $RequestedVersion"
     }
 
-    Write-Error "Version $RequestedVersion not found. Use `$env:VERSION = 'list'` to see available versions."
+    if (-not $response.tag_name) {
+        Write-Error "GitHub API returned no tag for version $RequestedVersion."
+    }
+    $script:ActiveRepo = $Repo
+    return $response.tag_name
 }
 
 function Get-LatestVersion {
-    $repos = @($Repo)
     $headers = Get-AuthHeaders
+    $apiUrl = "https://api.github.com/repos/$Repo/releases/latest"
 
-    foreach ($repo in $repos) {
-        $apiUrl = "https://api.github.com/repos/$repo/releases/latest"
-
-        try {
-            $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
-            if ($response.tag_name) {
-                $script:ActiveRepo = $repo
-                return $response.tag_name
-            }
-        } catch {
-            continue
+    try {
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+    } catch {
+        $failure = Get-ApiFailure $_
+        if ($failure.Status -eq 404) {
+            Write-Error "$Repo has no published release."
         }
+        Stop-GitHubApiFailure $failure "the latest release of $Repo"
     }
 
-    Write-Error "Failed to fetch latest release. Check your internet connection."
+    if (-not $response.tag_name) {
+        Write-Error "GitHub API returned no tag for the latest release of $Repo."
+    }
+    $script:ActiveRepo = $Repo
+    return $response.tag_name
 }
 
 function Show-AvailableVersions {
-    $repos = @($Repo)
     $headers = Get-AuthHeaders
+    $apiUrl = "https://api.github.com/repos/$Repo/releases?per_page=20"
 
-    foreach ($repo in $repos) {
-        $apiUrl = "https://api.github.com/repos/$repo/releases?per_page=20"
+    try {
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+    } catch {
+        Stop-GitHubApiFailure (Get-ApiFailure $_) "the releases of $Repo"
+    }
 
-        try {
-            $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
-            if ($response.Count -gt 0) {
-                Write-Host ""
-                Write-Info "Available versions (from $repo):"
-                Write-Host ""
+    if (-not $response -or $response.Count -eq 0) {
+        Write-Error "$Repo has no published releases."
+    }
 
-                $first = $true
-                $exampleTag = ""
-                foreach ($release in $response) {
-                    $tag = $release.tag_name
-                    if ($first) {
-                        Write-Host "  $tag  (latest)"
-                        $first = $false
-                    } else {
-                        Write-Host "  $tag"
-                        if (-not $exampleTag) { $exampleTag = $tag }
-                    }
-                }
+    Write-Host ""
+    Write-Info "Available versions (from $Repo):"
+    Write-Host ""
 
-                Write-Host ""
-                Write-Info "Install a specific version:"
-                Write-Host "  `$env:VERSION = '$exampleTag'; irm https://raw.githubusercontent.com/viaalink/cli/main/install.ps1 | iex"
-                Write-Host ""
-                return
-            }
-        } catch {
-            continue
+    $first = $true
+    $exampleTag = ""
+    foreach ($release in $response) {
+        $tag = $release.tag_name
+        if ($first) {
+            Write-Host "  $tag  (latest)"
+            $first = $false
+        } else {
+            Write-Host "  $tag"
+            if (-not $exampleTag) { $exampleTag = $tag }
         }
     }
 
-    Write-Error "Failed to fetch releases. Check your internet connection."
+    Write-Host ""
+    Write-Info "Install a specific version:"
+    Write-Host "  `$env:VERSION = '$exampleTag'; irm https://raw.githubusercontent.com/viaalink/cli/main/install.ps1 | iex"
+    Write-Host ""
 }
 
 function Install-Asd {
@@ -311,7 +380,7 @@ function Install-Asd {
         $archivePath = Join-Path $tmpDir $ArchiveName
         $extractDir = Join-Path $tmpDir "extracted"
 
-        Write-Info "Downloading $ArchiveName..."
+        Write-Info "Downloading the Viaalink CLI (windows-x64)..."
 
         # Local file path or remote URL
         $isLocalPath = $false
@@ -478,8 +547,8 @@ function Install-Asd {
         # Verify installation
         if ((Test-Path $destBin) -and (Test-Path $viaBin)) {
             Write-Info "Viaalink CLI installed successfully!"
-            Write-Info "   Commands: via, asd"
-            Write-Info "   Location: $viaBin, $destBin"
+            Write-Info "   Command: via"
+            Write-Info "   Location: $viaBin"
 
             $prevEap = $ErrorActionPreference
             $ErrorActionPreference = "Continue"

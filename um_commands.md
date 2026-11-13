@@ -1,6 +1,6 @@
 # Viaalink CLI Command Reference
 
-**Version:** 2.7.0 | **Last Updated:** 2026-10-22
+**Version:** 2.7.1 | **Last Updated:** 2026-11-09
 
 Complete reference for all Viaalink CLI commands.
 
@@ -44,7 +44,7 @@ ASD_SKIP_BINARIES=all via init  # Skip binary downloads
 
 **What it does:**
 1. Creates `asd.yaml` configuration file
-2. Creates `.asd/workspace/` directory
+2. Creates the `.via/` state directory (`.via/workspace/`) and adds `.via/` to `.gitignore` in a git repository
 3. Downloads helper binaries (Caddy, ttyd, code-server)
 4. Sets up `.env` from template
 5. Optionally discovers running services
@@ -170,13 +170,45 @@ via expose 3000 --server home      # Publish through a named relay
 | `--local-only` | No tunnel, local Caddy routing only |
 | `--server <relay>` | Publish through this relay instead of the default one |
 | `--domain <host>` | Publish under another domain the relay serves |
+| `--auth=basic\|none` | Login in front (basic is the default). `--auth=basic` with no project login set (`ASD_BASIC_AUTH_USERNAME` / `ASD_BASIC_AUTH_PASSWORD`) is refused: nothing is published |
+| `--json` | Print the result as one JSON object on stdout; every other line goes to stderr |
 
 **Output:**
 ```
-Local:  http://localhost:3000
-Caddy:  http://myapp.localhost
-Tunnel: https://myapp-abc123.relay.example.com
+📍 Published:   https://myapp-abc123.relay.example.com  (answers HTTP 401)
+   Your app:    localhost:3000
+   Local route: http://myapp.localhost  (this machine only, answers HTTP 401)
 ```
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Published, and the app answers through the published address (with `--local-only`: the app answers) |
+| `3` | Published (the relay routes the address to this machine), but the app does not answer yet, e.g. HTTP 502 because it has not started |
+| `1` | Not published: the tunnel failed, or the command refused before anything started |
+
+A CI job can expose first and start its app afterwards: exit 3 means "start the app", exit 1 means "fix the setup".
+
+**JSON (`--json`):**
+
+```bash
+via expose 8080 webhooks --auth=none --json
+```
+
+```json
+{"id":"webhooks","url":"https://webhooks.relay.example.com/","state":"online","tunnelUp":true,"appUp":true}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `id` | The service id (the name), as `via expose list --json` and `via expose stop` use it |
+| `url` | The published address once the relay routes it; otherwise the local route (`null` with `--direct`, which has none) |
+| `state` | As in `via expose list`: `online`, `stale` (published, app not answering) or `local` (not published) |
+| `tunnelUp` | The relay routes the published address to this machine |
+| `appUp` | The app answers on its port, like `via expose list --json`'s `appUp` |
+
+When the command refuses before anything starts (a bad port, a login that is due and not set), stdout stays empty and the exit code is 1.
 
 The `--name` option sets a prefix. On a relay shared by several devices the URL is `<name>-<client-id>.<relay-domain>`; on your own (dedicated) relay nothing is appended (`<name>.<relay-domain>`).
 
@@ -193,9 +225,8 @@ via expose list
 **Output:**
 ```
 myapp
-    Port:     3000
-    Local:    http://myapp.localhost
-    Tunnel:   https://myapp-abc123.relay.example.com
+    Published:   https://myapp-abc123.relay.example.com
+    Port:        3000
     Status:   ✅ Online
     Uptime:   🕐 2h 15m
 ```
@@ -290,7 +321,7 @@ via net open <service-id>
 
 ### `via net remove`
 
-Remove service from registry.
+Remove a service: stop its tunnel (its public address closes), remove its Caddy routes and its registry entry. To stop sharing a service for good, delete it from `via.yaml` instead: the next `via net apply` does the same, and a service still in `via.yaml` comes back on the next apply.
 
 ```bash
 via net remove <service-id>
@@ -460,36 +491,47 @@ via relay remove <name>
 
 ### `via auth export`
 
-Export SSH key credentials as environment variables for use in Docker or CI.
+Export the active relay key as `VIA_TUNNEL_*` environment variables for use
+in Docker or CI. The private key (`VIA_TUNNEL_KEY`) is printed only with
+`--with-key`, so a plain run never leaves it in your scrollback or a log; a
+note on stderr says it was left out. For a GitHub repository use
+`via gh setup`, which stores the key as secrets without printing it.
 
 ```bash
-via auth export              # Shell export format
-via auth export --docker     # Docker -e flag format
+via auth export                       # Shell export lines, without the private key
+via auth export --docker              # Docker -e flags, without the private key
+via auth export --with-key            # Also VIA_TUNNEL_KEY (the private key)
+via auth export --docker --with-key
 ```
 
-**Shell format output:**
+**Shell format output (`--with-key`):**
 ```bash
-export ASD_TUNNEL_KEY="<base64-private-key>"
-export ASD_TUNNEL_KEY_ID="<key-uuid>"
-export ASD_TUNNEL_HOST="relay.example.com"
-export ASD_TUNNEL_PORT="2222"
+export VIA_TUNNEL_KEY="<base64-private-key>"
+export VIA_TUNNEL_KEY_ID="<key-uuid>"
+export VIA_TUNNEL_HOST="relay.example.com"
+export VIA_TUNNEL_PORT="2222"
+export VIA_TUNNEL_HOST_KEY_FINGERPRINTS="SHA256:...,SHA256:..."
 ```
 
-**Docker format output:**
+**Docker format output (`--docker --with-key`):**
 ```bash
--e ASD_TUNNEL_KEY="<base64-private-key>" \
--e ASD_TUNNEL_KEY_ID="<key-uuid>" \
--e ASD_TUNNEL_HOST="relay.example.com" \
--e ASD_TUNNEL_PORT="2222"
+-e VIA_TUNNEL_KEY="<base64-private-key>" \
+-e VIA_TUNNEL_KEY_ID="<key-uuid>" \
+-e VIA_TUNNEL_HOST="relay.example.com" \
+-e VIA_TUNNEL_PORT="2222" \
+-e VIA_TUNNEL_HOST_KEY_FINGERPRINTS="SHA256:...,SHA256:..."
 ```
+
+The CLI reads each `VIA_X` as `ASD_X`, so a runner or container with these set
+publishes with the key.
 
 **Usage examples:**
 ```bash
 # Set env vars in current shell
-eval $(via auth export)
+eval $(via auth export --with-key)
 
 # Pass to Docker
-docker run $(via auth export --docker) my-image via expose 3000
+docker run $(via auth export --docker --with-key) my-image via expose 3000
 ```
 
 > **Tip:** Relay credentials come from `via relay add '<invite link>'`; `via relay list` shows them.
@@ -501,8 +543,8 @@ docker run $(via auth export --docker) my-image via expose 3000
 `via vault` keeps secrets encrypted on this machine before they go anywhere.
 Two stores ("providers"):
 
-- `local` (default): one file, `<ASD home>/vault-store/local.json` (mode 0600;
-  `~/.local/share/asd/vault-store/` on Linux).
+- `local` (default): one file, `<data dir>/vault-store/local.json` (mode 0600;
+  `~/.local/share/via/vault-store/` on Linux, or `$VIA_HOME/vault-store/`).
 - `s3`: your own S3-compatible bucket (AWS S3, Cloudflare R2, Backblaze B2,
   MinIO, ...). Only ciphertext reaches the bucket. Secret **names** are
   visible to whoever runs the bucket; values, descriptions and categories
@@ -512,9 +554,12 @@ Secrets live in **scopes** (default: `default`). A secret is referenced as
 `via://<scope>/<name>`, e.g. `via://default/db/password`.
 
 The key that opens your secrets is the **identity**, in your per-user config
-directory (`~/.config/asd/vault/identity` on Linux, `~/Library/Application
-Support/asd/vault/identity` on macOS, `%APPDATA%\asd\vault\identity` on
-Windows; mode 0600, created on the first `vault set`). It is kept apart from
+directory (`~/.config/via/vault/identity` on Linux, or
+`$XDG_CONFIG_HOME/via/vault/identity`; `~/Library/Application
+Support/via/vault/identity` on macOS, `%APPDATA%\via\vault\identity` on
+Windows; mode 0600, created on the first `vault set`). Before 3.2 these
+directories were named `asd`; the CLI moves them to `via` on its first start
+and leaves a link at the old name. It is kept apart from
 the store on purpose and never leaves this machine. To use the same secrets
 on another machine, copy that file there over a secure channel (same path,
 mode 0600). Lose it and the secrets cannot be decrypted, so back it up, but
@@ -625,6 +670,26 @@ via vault export ./restored                  # rebuilds the files (mode 0600)
 
 Remote development via GitHub Actions.
 
+### `via ci install`
+
+Viaalink CI/CD: a terminal, VS Code and your services in CI/CD jobs. Detects the repository's
+provider from the `origin` remote and installs its terminal workflow; on
+GitHub it does what `via gh setup` does, `--relay` included. GitLab support is
+coming. `via ci` on its own only lists the commands.
+
+The job runs on a GitHub-hosted runner, with the operating system picked per
+session, unless you name a self-hosted runner pool: `--runs-on` takes the
+pool's labels, comma-separated, and writes them as the job's
+`runs-on: [self-hosted, linux, x64]` (the workflow then has no OS input). At a
+terminal without the flag, `via ci install` asks, offering "custom labels".
+Labels may only contain letters, digits, `.`, `_` and `-`.
+
+```bash
+via ci install
+via ci install --relay github-ci   # store the key of the relay device kept for CI
+via ci install --runs-on self-hosted,linux,x64   # run on your own runner pool
+```
+
 ### `via gh`
 
 Show GitHub integration menu.
@@ -635,11 +700,38 @@ via gh
 
 ### `via gh setup`
 
-Install the terminal workflow (`.github/workflows/terminal.yml`). It
-publishes with a relay device key held in the repository secrets
-`ASD_TUNNEL_KEY`, `ASD_TUNNEL_KEY_ID`, `ASD_TUNNEL_HOST` and, optionally,
-`ASD_TUNNEL_PORT`: the values `via auth export` prints on a device enrolled on
-the relay.
+Install the terminal workflow (`.github/workflows/terminal.yml`) and, after
+asking, store its secrets on the repository with `gh secret set`, each value
+on gh's stdin (never an argument, never printed). The workflow is short: a
+`workflow_dispatch` that calls the
+[Viaalink CI/CD Action](https://github.com/viaalink/cicd)
+(`uses: viaalink/cicd@v2`), which holds the session itself (installing
+the CLI, the login, publishing through the relay, cleanup). It passes the
+secrets below to the Action and maps the inputs `via gh terminal` sends (`os`
+picks the runner; `shell`, `username`, `interface`, `tunnel-name` and
+`cli-version` go to the Action). An existing `terminal.yml` that differs is
+replaced only after you confirm; one that is already current is left as it is,
+also one that still names the Action by its earlier name
+`viaalink/ci-terminal@v2` (GitHub redirects it, so it keeps working).
+The secrets:
+
+- `VIA_TUNNEL_KEY`, `VIA_TUNNEL_KEY_ID`, `VIA_TUNNEL_HOST`, `VIA_TUNNEL_PORT`,
+  `VIA_TUNNEL_HOST_KEY_FINGERPRINTS`: this device's relay key and the relay's
+  host key pins (run it on a device enrolled on the relay; a key without pins
+  is refused before anything is written, since a runner could not connect with it);
+- `VIA_TERMINAL_PASSWORD`: the password of the login in front of the
+  terminal, generated once and saved on this machine for `via gh terminal`.
+
+Without `--relay` and with more than one relay enrolled, it asks which relay's
+key goes to the runner, offering one that is not this laptop's own first; it
+warns when the key it stores is this laptop's own (whoever opens the terminal
+can read it on the runner). `via ci install` does the same and takes `--relay`
+too.
+
+It stores nothing without a terminal to confirm at. Before 3.2 the relay key
+secrets were named `ASD_TUNNEL_*`; nothing reads those now. Run `via gh setup`
+again in such a repository and then delete the old secrets
+(`gh secret delete ASD_TUNNEL_KEY --repo <owner>/<repo>`, and so on).
 
 ```bash
 via gh setup
@@ -648,11 +740,61 @@ via gh setup
 ### `via gh terminal`
 
 Start remote terminal session in GitHub Actions. Stops before triggering when
-the repository lacks the relay secrets above.
+the repository lacks the secrets above, or still has them under the pre-3.2
+`ASD_TUNNEL_*` names, and says which to store with `via gh setup`. The login
+password is never a workflow input (inputs show on the run's page).
 
 ```bash
-via gh terminal
+via gh terminal                          # a terminal
+via gh terminal --interface codeserver   # VS Code in the browser
+via gh terminal --show-login             # also print the address with the login in it
+via gh terminal --watch                  # keep watching the run after it is published
 ```
+
+It starts in the current folder's project and shows the published address
+first (`Published: https://…/`), without the login: the login is the username
+(default `via`) and the password `via gh setup` saved on this machine;
+`--show-login` prints the address with both in it, but only for an address
+under the domain of a relay this device is enrolled on. Before it starts, one
+line names the workflow, repository, branch, runner and interface
+(`Start terminal.yml in o/r on main (runner ubuntu-latest, terminal)? [Y/n]`);
+Enter starts it, and without a terminal only an explicit `y` does. `Run:` is
+the run's page on GitHub. Once the session is published it prints how to stop
+it (`via gh stop <run>`) and returns; `--watch` keeps following the run until
+it ends. The address comes from the run's `tunnel-url-<session name>`
+artifact, which the Viaalink CI/CD Action uploads; once it is there the
+session is ready.
+
+The installed `terminal.yml` runs one session per person at a time in a repository
+(its `concurrency` group is keyed on the person): a second one would wait,
+queued, until the first ends. So when one of yours is running there,
+`via gh terminal` offers to reopen it, or to stop it and start a new one, not a
+second session. A workflow without such a group (dev-terminal.yml, or one that
+only calls the Viaalink CI/CD Action) can start a new session alongside. When the
+GitHub account cannot be read (an app token, no network), nothing is assumed to
+be yours: only a session you pick (`s1`, `s2`, …) is stopped, and stopping a
+session someone else started asks first. After starting a session it follows
+the new run of your account; when the account cannot be read it does not
+follow any run (it might be a colleague's) and points to `via gh active`.
+
+The inputs sent are the ones the workflow on that branch declares: the CLI
+version goes as `cli-version`. An input the workflow does not take is named before the run
+starts, the CLI version included. When the workflow on that branch cannot be
+read, a picked CLI version is not sent (the run would be refused): it says so
+and starts nothing; the workflow's default version starts as usual.
+
+The version step offers the workflow's default, the latest release, the latest
+nightly build from
+[`viaalink/cli-nightly`](https://github.com/viaalink/cli-nightly/releases), or
+a version to type. The workflow's default is the default choice: no version is
+sent, and the Action installs the CLI build it is made for (the workflow's
+`cli-version` input is empty unless you pick one). A nightly is used only when
+you pick it (the latest nightly is then the default next time). For a
+nightly tag (`v3.2.6-nightly.20261105T0212`) the Action installs the archive
+from that nightly's release and checks it against the release's
+`SHA256SUMS.txt`. In a repository whose `terminal.yml` an older CLI installed,
+run `via gh setup` again (let it replace `terminal.yml`, then commit and push)
+to move it onto the Action.
 
 ### `via gh list`
 
@@ -664,7 +806,8 @@ via gh list
 
 ### `via gh runs`
 
-Show active workflow runs.
+Recent terminal sessions of this repository, as a table (run, branch, state,
+when it started); runs of other workflows are not listed.
 
 ```bash
 via gh runs
@@ -672,7 +815,8 @@ via gh runs
 
 ### `via gh active`
 
-Check for active sessions.
+Running and queued terminal sessions, each with its published address
+(`--show-login` adds the address with the login) and its run's page.
 
 ```bash
 via gh active
@@ -680,10 +824,19 @@ via gh active
 
 ### `via gh stop`
 
-Stop running session.
+Stop a running session: the only one, or the one you pick. A run id must be
+digits only, belong to this project's repository and be a terminal session: a
+run started by hand (`workflow_dispatch`) of `terminal.yml`, `dev-terminal.yml`
+or a workflow that runs the Viaalink CI/CD Action unconditionally. Any other run,
+such as CI (also one that adds the Action as an `if: failure()` debug step) or
+a release, is refused. Stopping a session someone else started asks first,
+with or without a run id; when the GitHub account cannot be read, every session
+counts as someone else's. Without a terminal it stops only your own sessions and
+exits 1 with "Not stopped: …" for any other.
 
 ```bash
 via gh stop
+via gh stop 42618438585
 ```
 
 ### `via gh login`
@@ -779,7 +932,7 @@ via logs tunnel     # Tunnel logs
 via logs ttyd       # Terminal logs
 ```
 
-Logs are stored in `.asd/workspace/logs/`.
+Logs are stored in `.via/workspace/logs/`.
 
 ---
 
@@ -885,14 +1038,16 @@ Key environment variables:
 | `ASD_VERBOSE=1` | Enable verbose output |
 | `ASD_BIN_LOCATION` | Binary storage: `global` or `workspace` |
 
-**Tunnel authentication:**
+**Tunnel authentication** (what `via auth export --with-key` prints; the CLI
+reads each `VIA_X` as `ASD_X`):
 
 | Variable | Description |
 |----------|-------------|
-| `ASD_TUNNEL_KEY` | Base64-encoded SSH private key (for Docker/CI) |
-| `ASD_TUNNEL_KEY_ID` | SSH key UUID (required with `ASD_TUNNEL_KEY`) |
-| `ASD_TUNNEL_HOST` | Relay hostname (optional, auto-detected) |
-| `ASD_TUNNEL_PORT` | Relay SSH port (optional, default 2222) |
+| `VIA_TUNNEL_KEY` | Base64-encoded SSH private key (for Docker/CI) |
+| `VIA_TUNNEL_KEY_ID` | SSH key UUID (required with `VIA_TUNNEL_KEY`) |
+| `VIA_TUNNEL_HOST` | Relay hostname (required with `VIA_TUNNEL_KEY`) |
+| `VIA_TUNNEL_PORT` | Relay SSH port (optional, default 2222) |
+| `VIA_TUNNEL_HOST_KEY_FINGERPRINTS` | The relay's SSH host key fingerprints, comma or space separated (required with `VIA_TUNNEL_KEY` or `VIA_CLIENT_ID`/`VIA_CLIENT_SECRET`: the CLI never connects unpinned) |
 
 **Service credentials:**
 

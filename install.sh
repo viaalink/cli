@@ -89,6 +89,51 @@ atomic_symlink() {
   mv -f "$tmp" "$dest" || { rm -f "$tmp"; error "atomic move failed: $dest"; }
 }
 
+# Whether PID may be an installer or update that is still running. `kill -0`
+# fails with "Operation not permitted" for another user's process, which
+# exists; /proc is the fallback where the message is translated. Pid 1 says
+# nothing (init, or a container's entrypoint) and counts as not running.
+leftover_pid_alive() {
+  local pid="$1" err
+  [[ "$pid" =~ ^[0-9]+$ ]] && (( 10#$pid > 1 )) || return 1
+  err="$(LC_ALL=C kill -0 "$pid" 2>&1)" && return 0
+  [[ "$err" == *"not permitted"* ]] && return 0
+  [[ -d "/proc/$pid" ]]
+}
+
+# Remove the `.NAME.old-*` and `.NAME.failed-*` trees next to PARENT/NAME that
+# an earlier install or update could not remove, with the same rules as
+# `via update` (modules/update/scripts/bundled-resources.ts):
+#  - none while PARENT/NAME is missing: two failed renames in a row leave the
+#    previous tree only in `.NAME.old-*`;
+#  - none younger than 5 minutes, nor one whose pid (`<stamp>-<pid>` in the
+#    name; the stamp is seconds here, milliseconds from an update) still
+#    runs, for up to a day;
+#  - a name without a stamp goes by its mtime.
+# `.NAME.new-*` trees are never touched: another run may be copying into one.
+sweep_leftover_trees() {
+  local parent="$1" name="$2" stale id stamp pid now age
+  [[ -e "$parent/$name" || -L "$parent/$name" ]] || return 0
+  now="$(date +%s)"
+  for stale in "$parent/.$name.old-"* "$parent/.$name.failed-"*; do
+    [[ -e "$stale" || -L "$stale" ]] || continue
+    id="${stale#"$parent/.$name."}"
+    id="${id#old-}"
+    id="${id#failed-}"
+    if [[ "$id" =~ ^([0-9]+)-([0-9]+) ]]; then
+      stamp="${BASH_REMATCH[1]}"
+      pid="${BASH_REMATCH[2]}"
+      (( ${#stamp} >= 13 )) && stamp="${stamp:0:${#stamp}-3}"
+      age=$(( now - 10#$stamp ))
+      (( age < 300 )) && continue
+      (( age < 86400 )) && leftover_pid_alive "$pid" && continue
+    else
+      [[ -n "$(find "$stale" -maxdepth 0 -mmin +5 2>/dev/null)" ]] || continue
+    fi
+    rm -rf "$stale" 2>/dev/null || true
+  done
+}
+
 # Replace the directory DEST with a copy of SRC without removing DEST in place.
 #
 # `rm -rf DEST` fails the whole install when the old tree is still in use:
@@ -98,16 +143,12 @@ atomic_symlink() {
 # copy into place, then remove the old tree best-effort. A process still
 # inside the old tree keeps it; the next install removes the leftover.
 replace_dir() {
-  local src="$1" dest="$2" parent name stage aside stale
+  local src="$1" dest="$2" parent name stage aside
   parent="$(dirname "$dest")"
   name="$(basename "$dest")"
   mkdir -p "$parent"
-  # Trees an earlier install could not remove. Only ".old-" ones: a ".new-"
-  # one may be another installer's copy in progress.
-  for stale in "$parent/.$name.old-"*; do
-    [[ -e "$stale" ]] || continue
-    rm -rf "$stale" 2>/dev/null || true
-  done
+  # Trees an earlier install or update could not remove.
+  sweep_leftover_trees "$parent" "$name"
   stage="$(mktemp -d "$parent/.$name.new-XXXXXX")" || error "mktemp failed in $parent"
   chmod 755 "$stage"
   cp -R "$src/." "$stage/" || { rm -rf "$stage"; error "copy failed: $src"; }
@@ -117,8 +158,12 @@ replace_dir() {
     mv "$dest" "$aside" || { rm -rf "$stage"; error "could not move the previous $dest aside"; }
   fi
   if ! mv "$stage" "$dest"; then
-    [[ -n "$aside" ]] && mv "$aside" "$dest"
     rm -rf "$stage"
+    if [[ -n "$aside" ]] && ! mv "$aside" "$dest"; then
+      # The previous tree is now the only copy; the sweep keeps it while
+      # $dest is missing.
+      error "could not move the new $name into $dest, nor the previous one back: it is kept at $aside"
+    fi
     error "could not move the new $name into $dest"
   fi
   if [[ -n "$aside" ]] && ! rm -rf "$aside" 2>/dev/null; then
@@ -228,125 +273,121 @@ detect_platform() {
   echo "$result"
 }
 
+# GET a GitHub API URL. Writes the body to $2 and prints the HTTP status
+# ("000" when no response arrived). curl runs without -f on purpose: with -f a
+# 403 rate limit, a 404 and a dropped connection all look the same, and the
+# caller could only guess which one it was.
+github_api_get() {
+  local url="$1" out="$2" token code
+  token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  local args=(-sSL -o "$out" -w '%{http_code}' -H "Accept: application/vnd.github+json")
+  [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
+  code=$(curl "${args[@]}" "$url" 2>/dev/null) || code="000"
+  printf '%s' "${code:-000}"
+}
+
+# Exit with the reason a GitHub API call failed. Removes the body file first,
+# so no exit path leaves it behind.
+# $1 = HTTP status ("000" = no response), $2 = what was looked up, $3 = body file
+github_api_fail() {
+  local code="$1" what="$2" body="$3"
+  local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  local rate_limited=false
+  if [[ "$code" == "429" ]] || { [[ "$code" == "403" ]] && grep -qi 'rate limit' "$body" 2>/dev/null; }; then
+    rate_limited=true
+  fi
+  rm -f "$body"
+  if [[ "$code" == "000" ]]; then
+    error "Could not reach the GitHub API (api.github.com) while looking up ${what}. Check your internet connection."
+  fi
+  if $rate_limited; then
+    if [[ -n "$token" ]]; then
+      error "GitHub API rate limit reached for this token while looking up ${what} (HTTP ${code}). Try again later."
+    fi
+    error "GitHub API rate limit reached while looking up ${what} (HTTP ${code}). Requests without a token get 60 per hour per IP address, and CI runners share theirs. Set GITHUB_TOKEN (in GitHub Actions: GITHUB_TOKEN: \${{ github.token }}) and try again."
+  fi
+  if [[ "$code" == "401" ]]; then
+    error "GitHub API rejected the token in GITHUB_TOKEN/GH_TOKEN (HTTP 401) while looking up ${what}. Fix or unset it and try again."
+  fi
+  error "GitHub API answered HTTP ${code} while looking up ${what}. Try again later."
+}
+
 # List available releases from GitHub
 list_versions() {
-  local repos=("${REPO}")
-  local auth_header=""
-
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
-  elif [[ -n "${GH_TOKEN:-}" ]]; then
-    auth_header="Authorization: Bearer ${GH_TOKEN}"
+  local body code
+  body=$(mktemp)
+  code=$(github_api_get "https://api.github.com/repos/${REPO}/releases?per_page=20" "$body")
+  if [[ "$code" != "200" ]]; then
+    github_api_fail "$code" "the releases of ${REPO}" "$body"
   fi
 
-  for repo in "${repos[@]}"; do
-    local api_url="https://api.github.com/repos/${repo}/releases?per_page=20"
-    local response
+  local tags
+  tags=$(grep -o '"tag_name": *"[^"]*"' "$body" | cut -d'"' -f4 || true)
+  rm -f "$body"
+  [[ -n "$tags" ]] || error "${REPO} has no published releases."
 
-    if [[ -n "$auth_header" ]]; then
-      response=$(curl -fsSL -H "Accept: application/vnd.github+json" -H "$auth_header" "$api_url" 2>/dev/null) || continue
+  echo ""
+  info "Available versions (from $REPO):"
+  echo ""
+  local first=true
+  local example_tag=""
+  local tag=""
+  while IFS= read -r tag; do
+    if $first; then
+      echo "  $tag  (latest)"
+      first=false
     else
-      response=$(curl -fsSL -H "Accept: application/vnd.github+json" "$api_url" 2>/dev/null) || continue
+      echo "  $tag"
+      [[ -z "$example_tag" ]] && example_tag="$tag"
     fi
-
-    local tags
-    tags=$(echo "$response" | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4)
-
-    if [[ -n "$tags" ]]; then
-      echo ""
-      info "Available versions (from $repo):"
-      echo ""
-      local first=true
-      local example_tag=""
-      while IFS= read -r tag; do
-        if $first; then
-          echo "  $tag  (latest)"
-          first=false
-        else
-          echo "  $tag"
-          [[ -z "$example_tag" ]] && example_tag="$tag"
-        fi
-      done <<< "$tags"
-      echo ""
-      info "Install a specific version:"
-      echo "  curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | VERSION=${example_tag:-$tag} bash"
-      echo ""
-      return 0
-    fi
-  done
-
-  error "Failed to fetch releases. Check your internet connection."
+  done <<< "$tags"
+  echo ""
+  info "Install a specific version:"
+  echo "  curl -fsSL https://raw.githubusercontent.com/viaalink/cli/main/install.sh | VERSION=${example_tag:-$tag} bash"
+  echo ""
 }
 
 # Get release tag — uses VERSION env var if set, otherwise fetches latest
-# Tries public repo first, falls back to private repo
 # Outputs two lines: version\nrepo (to avoid subshell variable loss)
 get_version() {
+  local body code
+  body=$(mktemp)
+
   # If VERSION is explicitly set, validate it exists and use it
   if [[ -n "$VERSION" ]]; then
     # Ensure it starts with 'v'
     [[ "$VERSION" != v* ]] && VERSION="v${VERSION}"
 
-    local repos=("${REPO}")
-    local auth_header=""
-
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-      auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
-    elif [[ -n "${GH_TOKEN:-}" ]]; then
-      auth_header="Authorization: Bearer ${GH_TOKEN}"
-    fi
-
-    for repo in "${repos[@]}"; do
-      local api_url="https://api.github.com/repos/${repo}/releases/tags/${VERSION}"
-      local http_code
-
-      if [[ -n "$auth_header" ]]; then
-        http_code=$(curl -fsSL -o /dev/null -w '%{http_code}' -H "Accept: application/vnd.github+json" -H "$auth_header" "$api_url" 2>/dev/null) || continue
-      else
-        http_code=$(curl -fsSL -o /dev/null -w '%{http_code}' -H "Accept: application/vnd.github+json" "$api_url" 2>/dev/null) || continue
-      fi
-
-      if [[ "$http_code" == "200" ]]; then
+    code=$(github_api_get "https://api.github.com/repos/${REPO}/releases/tags/${VERSION}" "$body")
+    case "$code" in
+      200)
+        rm -f "$body"
         echo "$VERSION"
-        echo "$repo"
+        echo "$REPO"
         return 0
-      fi
-    done
-
-    error "Version $VERSION not found. Use VERSION=list to see available versions."
+        ;;
+      404)
+        rm -f "$body"
+        error "Version $VERSION not found. Use VERSION=list to see available versions."
+        ;;
+      *)
+        github_api_fail "$code" "version ${VERSION}" "$body"
+        ;;
+    esac
   fi
 
   # No VERSION set — fetch latest
-  local repos=("${REPO}")
-  local auth_header=""
-
-  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    auth_header="Authorization: Bearer ${GITHUB_TOKEN}"
-  elif [[ -n "${GH_TOKEN:-}" ]]; then
-    auth_header="Authorization: Bearer ${GH_TOKEN}"
+  code=$(github_api_get "https://api.github.com/repos/${REPO}/releases?per_page=1" "$body")
+  if [[ "$code" != "200" ]]; then
+    github_api_fail "$code" "the latest release of ${REPO}" "$body"
   fi
 
-  for repo in "${repos[@]}"; do
-    local api_url="https://api.github.com/repos/${repo}/releases?per_page=1"
-    local response
-
-    if [[ -n "$auth_header" ]]; then
-      response=$(curl -fsSL -H "Accept: application/vnd.github+json" -H "$auth_header" "$api_url" 2>/dev/null) || continue
-    else
-      response=$(curl -fsSL -H "Accept: application/vnd.github+json" "$api_url" 2>/dev/null) || continue
-    fi
-
-    local tag
-    tag=$(echo "$response" | grep -o '"tag_name": *"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [[ -n "$tag" ]]; then
-      echo "$tag"
-      echo "$repo"
-      return 0
-    fi
-  done
-
-  error "Failed to fetch latest release. Check your internet connection."
+  local tag
+  tag=$(grep -o '"tag_name": *"[^"]*"' "$body" | head -1 | cut -d'"' -f4 || true)
+  rm -f "$body"
+  [[ -n "$tag" ]] || error "${REPO} has no published releases."
+  echo "$tag"
+  echo "$REPO"
 }
 
 # Minimal Termux install when no pre-built Termux archive exists anywhere.
@@ -363,7 +404,7 @@ _install_minimal_termux() {
     if npm install -g "@viaalink/cli@$npm_version" 2>/dev/null || \
        npm install -g "@viaalink/cli@latest" 2>/dev/null; then
       info "✅ Viaalink CLI installed via npm (minimal — Node.js runtime)"
-      info "   Version: $(asd --version 2>/dev/null || echo "$version")"
+      info "   Version: $(via --version 2>/dev/null || echo "$version")"
       echo ""
       warn "Native binaries (caddy, ttyd, code-server) are not bundled."
       warn "Install them manually: pkg install caddy ttyd"
@@ -395,7 +436,7 @@ WRAPPER
       atomic_symlink "$INSTALL_DIR/asd" "$INSTALL_DIR/via"
 
       info "✅ Viaalink CLI installed (source — Node.js runtime)"
-      info "   Location: $INSTALL_DIR/asd (also as $INSTALL_DIR/via)"
+      info "   Location: $INSTALL_DIR/via"
       echo ""
       warn "This is a source install without pre-built binaries."
       warn "Install helpers manually: pkg install caddy ttyd"
@@ -488,7 +529,7 @@ install_asd() {
   tmp_dir=$(mktemp -d)
   trap "rm -rf $tmp_dir" EXIT
 
-  info "Downloading $archive_name..."
+  info "Downloading the Viaalink CLI (${platform})..."
 
   # Helper: download with optional auth
   # For private repos, GitHub browser URLs redirect to a CDN that strips auth headers.
@@ -779,8 +820,8 @@ Refusing install."
   # Verify installation
   if [[ -x "$INSTALL_DIR/asd" && -x "$INSTALL_DIR/via" ]]; then
     info "✅ Viaalink CLI installed successfully!"
-    info "   Commands: via, asd (both run $asd_bin_home/asd)"
-    info "   Linked from: $INSTALL_DIR/via, $INSTALL_DIR/asd"
+    info "   Command: via"
+    info "   Linked from: $INSTALL_DIR/via"
     info "   Version: $("$INSTALL_DIR/via" --version 2>/dev/null || echo "$version")"
     echo ""
     info "To update in the future, run:"
