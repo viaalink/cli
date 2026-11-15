@@ -727,15 +727,13 @@ Create secure public URLs for local services.
 
 **From CLI:**
 ```bash
-via net expose start <service-id>
-via net expose start --all        # Start all tunnel-preferred services
+via net expose start --id <service-id>
 ```
 
 ### Stopping Tunnels
 
 ```bash
-via net expose stop <service-id>
-via net expose stop --all
+via net expose stop --id <service-id>
 via net expose reset              # Kill all tunnels, clear state
 ```
 
@@ -811,9 +809,8 @@ via relay info <name>              # Details of one relay
 Enable/disable tunnels for services defined in `asd.yaml`:
 
 ```bash
-via net expose start <service-id>  # Enable tunnel for service
-via net expose start --all         # Enable all tunnel-preferred services
-via net expose stop <service-id>   # Disable tunnel
+via net expose start --id <service-id> # Enable tunnel for service
+via net expose stop --id <service-id> # Disable tunnel
 via net expose reset               # Kill all tunnels, clear state
 ```
 
@@ -822,7 +819,7 @@ via net expose reset               # Kill all tunnels, clear state
 | Need | Use |
 |------|-----|
 | Quick share a port | `via expose <port>` |
-| Share a configured service | `via net expose start <service-id>` |
+| Share a configured service | `via net expose start --id <service-id>` |
 | Enrol on a relay | `via relay add '<invite link>'` |
 | Sign in to viaalink.com | `via login` |
 | Switch credentials | `via auth switch` |
@@ -1022,8 +1019,8 @@ Logs are stored in `.via/workspace/logs/`.
 | `via net start <id>` | Start a service |
 | `via net stop <id>` | Stop a service |
 | `via net open <id>` | Open service URL in browser |
-| `via net expose start <id>` | Start tunnel for service |
-| `via net expose stop <id>` | Stop tunnel for service |
+| `via net expose start --id <id>` | Start tunnel for service |
+| `via net expose stop --id <id>` | Stop tunnel for service |
 | `via net expose reset` | Kill all tunnels, clear state |
 
 ### Service Commands

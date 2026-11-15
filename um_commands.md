@@ -295,10 +295,8 @@ via net discover
 Manage tunnels for services.
 
 ```bash
-via net expose start <service-id>    # Start tunnel
-via net expose start --all           # Start all public services
-via net expose stop <service-id>     # Stop tunnel
-via net expose stop --all            # Stop all tunnels
+via net expose start --id <service-id> # Start tunnel
+via net expose stop --id <service-id> # Stop tunnel
 via net expose reset                 # Kill all, clear state
 ```
 
