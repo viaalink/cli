@@ -49,13 +49,13 @@ ASD_SKIP_BINARIES=all via init  # Skip binary downloads
 4. Sets up `.env` from template
 5. Optionally discovers running services
 
-### `via env-init`
+### `via env init`
 
 Manage environment variables in `.env` file.
 
 ```bash
-via env-init              # Merge with existing .env
-via env-init --override   # Replace entire .env
+via env init              # Merge with existing .env
+via env init --override   # Replace entire .env
 ```
 
 ### `via config validate`
@@ -671,8 +671,9 @@ Remote development via GitHub Actions.
 ### `via ci install`
 
 Viaalink CI/CD: a terminal, VS Code and your services in CI/CD jobs. Detects the repository's
-provider from the `origin` remote and installs its terminal workflow; on
-GitHub it does what `via gh setup` does, `--relay` included. GitLab support is
+provider from the `origin` remote of the current folder's git repository and
+installs its terminal workflow; on GitHub it does what `via gh setup` does,
+`--relay`, `--yes` and `--replace-workflow` included. GitLab support is
 coming. `via ci` on its own only lists the commands.
 
 The job runs on a GitHub-hosted runner, with the operating system picked per
@@ -686,6 +687,7 @@ Labels may only contain letters, digits, `.`, `_` and `-`.
 via ci install
 via ci install --relay github-ci   # store the key of the relay device kept for CI
 via ci install --runs-on self-hosted,linux,x64   # run on your own runner pool
+via ci install --yes             # in a script: store the secrets without asking
 ```
 
 ### `via gh`
@@ -705,48 +707,82 @@ on gh's stdin (never an argument, never printed). The workflow is short: a
 [Viaalink CI/CD Action](https://github.com/viaalink/cicd)
 (`uses: viaalink/cicd@v2`), which holds the session itself (installing
 the CLI, the login, publishing through the relay, cleanup). It passes the
-secrets below to the Action and maps the inputs `via gh terminal` sends (`os`
+secrets below to the Action and maps the inputs `via gh terminal` and `via gh code` send (`os`
 picks the runner; `shell`, `username`, `interface`, `tunnel-name` and
 `cli-version` go to the Action). An existing `terminal.yml` that differs is
 replaced only after you confirm; one that is already current is left as it is,
 also one that still names the Action by its earlier name
 `viaalink/ci-terminal@v2` (GitHub redirects it, so it keeps working).
-The secrets:
+What it stores:
 
-- `VIA_TUNNEL_KEY`, `VIA_TUNNEL_KEY_ID`, `VIA_TUNNEL_HOST`, `VIA_TUNNEL_PORT`,
-  `VIA_TUNNEL_HOST_KEY_FINGERPRINTS`: this device's relay key and the relay's
-  host key pins (run it on a device enrolled on the relay; a key without pins
-  is refused before anything is written, since a runner could not connect with it);
-- `VIA_TERMINAL_PASSWORD`: the password of the login in front of the
-  terminal, generated once and saved on this machine for `via gh terminal`.
+- `VIA_TUNNEL_KEY`, `VIA_TUNNEL_KEY_ID`, `VIA_TUNNEL_HOST_KEY_FINGERPRINTS`,
+  as secrets: this device's relay key and the relay's host key pins (run it
+  on a device enrolled on the relay; a key without pins is refused before
+  anything is written, since a runner could not connect with it);
+- `VIA_TUNNEL_HOST`, `VIA_TUNNEL_PORT`, as repository **variables**: the
+  relay's address. It is not a secret, and GitHub replaces every secret's
+  value with `***` in a run's log and summary: kept as a secret, the host name
+  turned the session's address there into `https://<name>.***`, so someone who
+  started the session from GitHub's Actions page could not read it;
+- `VIA_TERMINAL_PASSWORD`, as a secret: the password of the login in front of
+  the terminal, generated once and saved on this machine for `via gh terminal`.
+
+A repository set up before the address became a variable has it as a secret.
+The workflow reads the variable first and the secret when there is no
+variable, so it keeps working. Run `via gh setup` again and push the new
+`terminal.yml`: once the `terminal.yml` on GitHub reads the variable, `via gh
+setup` deletes the two address secrets (until then it keeps them and prints
+the `gh secret delete` lines).
 
 Without `--relay` and with more than one relay enrolled, it asks which relay's
-key goes to the runner, offering one that is not this laptop's own first; it
-warns when the key it stores is this laptop's own (whoever opens the terminal
-can read it on the runner). `via ci install` does the same and takes `--relay`
-too.
+key goes to the runner, offering one that is not this device's default key
+first. When the key it stores is this device's default and the device holds
+other relay keys, it says so and names the enrolled relays `--relay` can pick
+(whoever opens the terminal can read the stored key on the runner). A device
+kept for CI, with one relay, gets no such note. `via ci install` does the same
+and takes `--relay` too.
 
-It stores nothing without a terminal to confirm at. Before 3.2 the relay key
+The repository is the git repository of the current folder: the workflow goes
+to its top folder (GitHub reads workflows only there), also when you run it
+in a subfolder that is a via project of its own, and the secrets go to its
+`origin`. Outside a git repository it says so and exits 1.
+
+Without a terminal it stores no secrets unless `--yes` confirms it. `--yes`
+never replaces an existing `terminal.yml`: one that an earlier CLI wrote is
+offered for replacement (the current one adds a run title, so `via gh
+terminal` and `via gh code` can tell terminal and VS Code sessions apart;
+Enter replaces it), one that differs otherwise (edited, or older) is replaced
+only on an explicit `y`, since changes made to it are lost. `--replace-workflow`
+replaces it without asking, also without a terminal. A kept file is named,
+with what it means and the command that replaces it. A self-hosted runner pool
+the existing file pins (`via ci install --runs-on`) is kept, also by
+`--replace-workflow`; picking a GitHub-hosted runner in `via ci install` drops it. Before 3.2 the relay key
 secrets were named `ASD_TUNNEL_*`; nothing reads those now. Run `via gh setup`
 again in such a repository and then delete the old secrets
 (`gh secret delete ASD_TUNNEL_KEY --repo <owner>/<repo>`, and so on).
 
 ```bash
 via gh setup
+via gh setup --relay ci --yes    # in a script: store the secrets without asking
+via gh setup --replace-workflow  # replace a terminal.yml that differs
 ```
 
-### `via gh terminal`
+### `via gh terminal` and `via gh code`
 
-Start remote terminal session in GitHub Actions. Stops before triggering when
+`via gh terminal` starts a terminal (ttyd) on a GitHub runner; `via gh code`
+starts VS Code (code-server) there. Both run the same flow with the same
+options, and send the workflow's `interface` input (`terminal` or
+`codeserver`). They stop before triggering when
 the repository lacks the secrets above, or still has them under the pre-3.2
 `ASD_TUNNEL_*` names, and says which to store with `via gh setup`. The login
 password is never a workflow input (inputs show on the run's page).
 
 ```bash
 via gh terminal                          # a terminal
-via gh terminal --interface codeserver   # VS Code in the browser
+via gh code                              # VS Code in the browser
 via gh terminal --show-login             # also print the address with the login in it
 via gh terminal --watch                  # keep watching the run after it is published
+via gh code --cli-version v4.0.1         # install that CLI release on the runner
 ```
 
 It starts in the current folder's project and shows the published address
@@ -766,7 +802,7 @@ session is ready.
 The installed `terminal.yml` runs one session per person at a time in a repository
 (its `concurrency` group is keyed on the person): a second one would wait,
 queued, until the first ends. So when one of yours is running there,
-`via gh terminal` offers to reopen it, or to stop it and start a new one, not a
+`via gh terminal` (or `via gh code`) offers to reopen it, or to stop it and start a new one, not a
 second session. A workflow without such a group (dev-terminal.yml, or one that
 only calls the Viaalink CI/CD Action) can start a new session alongside. When the
 GitHub account cannot be read (an app token, no network), nothing is assumed to
@@ -775,22 +811,29 @@ session someone else started asks first. After starting a session it follows
 the new run of your account; when the account cannot be read it does not
 follow any run (it might be a colleague's) and points to `via gh active`.
 
-The inputs sent are the ones the workflow on that branch declares: the CLI
-version goes as `cli-version`. An input the workflow does not take is named before the run
-starts, the CLI version included. When the workflow on that branch cannot be
-read, a picked CLI version is not sent (the run would be refused): it says so
-and starts nothing; the workflow's default version starts as usual.
+The list of running sessions says what each one shows: the installed
+`terminal.yml` names the interface in the run's title (`Terminal session` or
+`VS Code session`). `via gh code` marks a terminal session as one (and the
+other way round), and reopening it opens what it shows, with a line saying so.
+A run of a `terminal.yml` installed before 4.0.2 has no such title: it is
+listed as "terminal or VS Code: not known" until `via gh setup` installs the
+current file.
 
-The version step offers the workflow's default, the latest release, the latest
-nightly build from
-[`viaalink/cli-nightly`](https://github.com/viaalink/cli-nightly/releases), or
-a version to type. The workflow's default is the default choice: no version is
-sent, and the Action installs the CLI build it is made for (the workflow's
-`cli-version` input is empty unless you pick one). A nightly is used only when
-you pick it (the latest nightly is then the default next time). For a
-nightly tag (`v3.2.6-nightly.20261105T0212`) the Action installs the archive
-from that nightly's release and checks it against the release's
-`SHA256SUMS.txt`. In a repository whose `terminal.yml` an older CLI installed,
+No CLI version is asked: the session installs the workflow's default (the
+Action's), and no `cli-version` input is sent. `--cli-version` names one:
+`latest`, a release tag (`v4.0.1`) or a nightly tag
+(`v3.2.6-nightly.20261105T0212`, from
+[`viaalink/cli-nightly`](https://github.com/viaalink/cli-nightly/releases));
+anything else is refused with an example, exit 1. For a nightly tag the
+Action installs the archive from that nightly's release and checks it against
+the release's `SHA256SUMS.txt`.
+
+The inputs sent are the ones the workflow on that branch declares: the CLI
+version goes as `cli-version`. An input the workflow does not take is named
+before the run starts, the CLI version included. When the workflow on that
+branch cannot be read, a `--cli-version` is not sent (the run would be
+refused): it says so and starts nothing; without `--cli-version` it starts as
+usual. In a repository whose `terminal.yml` an older CLI installed,
 run `via gh setup` again (let it replace `terminal.yml`, then commit and push)
 to move it onto the Action.
 
@@ -898,28 +941,6 @@ via deps install --force          # Force reinstall even if present
 2. Verifies integrity via SHA-256/SHA-512 checksums
 3. Installs to global location (`~/.local/share/asd/bin/`)
 
-### `via deps update`
-
-Update all binaries to their latest upstream versions, or a specific one.
-
-```bash
-via deps update                   # Update all outdated binaries
-via deps update caddy             # Update specific binary
-```
-
-**What it does:**
-1. Checks each binary's latest version on GitHub
-2. Downloads and verifies new versions
-3. Shows summary of what was updated
-
-**Note:** Results are cached for 10 minutes to avoid excessive API calls. Uses `gh` CLI for authenticated requests when available.
-
----
-
-## Logs
-
-View service logs.
-
 ### `via logs <service>`
 
 View logs for a service.
@@ -994,7 +1015,7 @@ Unknown command: deos
   Did you mean?
 
     deps install    Install managed binaries (--binary <name>, --force)
-    deps update     Update a binary to latest upstream version
+    deps verify     Verify installed managed binaries can actually run on this OS
 
   Run 'via --help' to see available commands.
 ```

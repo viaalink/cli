@@ -157,6 +157,12 @@ via run prod
 via up --task=dev         # Alternative with more options
 ```
 
+**When `via up` says "Started":** once the task's steps succeeded and its
+background steps keep running, or once its last step (a server such as
+`- run: "pnpm dev"`) is running in the foreground. A step that keeps running
+in the foreground before other steps keeps them from running: mark it
+`background: true` and follow it with a `waitFor`.
+
 **Task Properties:**
 
 | Property | Type | Description |
@@ -549,13 +555,13 @@ ASD_SKIP_BINARIES=all via init                    # Skip every binary download
 To skip downloads for good, list them under `preferences.skip_binaries` in
 your global config (`via config path` shows where it is).
 
-### `via env-init`
+### `via env init`
 
 Manage environment variables only:
 
 ```bash
-via env-init                # Merge with existing .env
-via env-init --override     # Replace entire .env
+via env init                # Merge with existing .env
+via env init --override     # Replace entire .env
 ```
 
 ### Workspace Structure
@@ -709,7 +715,7 @@ Services are validated through a multi-level cascade:
 Refresh health status:
 ```bash
 via net refresh            # Update all health checks
-via net healthcheck <id>   # Check specific service
+via net verify --id <id>   # Check specific service
 ```
 
 ---
@@ -822,7 +828,7 @@ via net expose reset               # Kill all tunnels, clear state
 | Share a configured service | `via net expose start --id <service-id>` |
 | Enrol on a relay | `via relay add '<invite link>'` |
 | Sign in to viaalink.com | `via login` |
-| Switch credentials | `via auth switch` |
+| Switch the default relay | `via relay` (pick) or `via relay set <name>` |
 
 ---
 
@@ -880,15 +886,16 @@ starts a run.
 
 ### Remote Terminal
 
-Start a web terminal in GitHub Actions:
+Start a web terminal (or VS Code) in GitHub Actions:
 
 ```bash
-via gh terminal
+via gh terminal            # a terminal
+via gh code                # VS Code
 ```
 
 This triggers a workflow that:
 1. Installs the CLI on the runner
-2. Starts a ttyd web terminal (or code-server)
+2. Starts a ttyd web terminal (`via gh code`: code-server)
 3. Publishes it through your relay with the key from the repository secrets
 4. Provides a URL to access the terminal
 
@@ -898,6 +905,7 @@ This triggers a workflow that:
 via gh                     # Show GitHub integration menu
 via gh setup               # Install workflow files
 via gh terminal            # Start remote terminal session
+via gh code                # Start remote VS Code session
 via gh list                # List recent workflow runs
 via gh runs                # Recent terminal sessions
 via gh active              # Check active sessions
@@ -1066,7 +1074,7 @@ Logs are stored in `.via/workspace/logs/`.
 | `via login` | Sign in to your viaalink.com account |
 | `via logout` | Sign out of viaalink.com |
 | `via whoami` | Show the signed-in account and its licenses |
-| `via auth switch` | Interactive credential and relay switcher |
+| `via relay` | Pick the default relay (interactive) |
 | `via auth export` | Export the active relay key as env vars (Docker/CI) |
 
 ### Relay Commands
@@ -1088,6 +1096,7 @@ Logs are stored in `.via/workspace/logs/`.
 | `via gh` | Show GitHub integration menu |
 | `via gh setup` | Install workflows |
 | `via gh terminal` | Start remote terminal |
+| `via gh code` | Start remote VS Code |
 | `via gh list` | List workflow runs |
 | `via gh runs` | Recent terminal sessions of this repository |
 | `via gh active` | Check active sessions |
